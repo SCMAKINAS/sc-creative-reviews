@@ -12,6 +12,7 @@
 //   GET  /queue    offene Assets fuer die App
 //   POST /review   ein Einzelbild-Review
 //   POST /unreview Review zuruecknehmen {reviewId, recordId?}
+//   GET  /rules    Creative-Regeln (Fest + Vorschlag)
 //   GET  /rollup   Trefferquoten pro Entitaet
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
@@ -23,6 +24,7 @@ const T = {
   depictions: "tbly4pX6YMtAfHYyz",
   assets: "tbl2rpHgH2D0hebQ4",
   reviews: "tbltxjO4jLxWbqTRy",
+  regeln: "tblZIQ6vTEQGwD2fn",
 };
 
 // Neuer Token nach Rate-Limit-Sperre des ersten; II hat Vorrang.
@@ -421,7 +423,48 @@ async function review(req: Request) {
   if (b.role === "Decision") {
     await atPatch(T.assets, [{ id: b.recordId, fields: { Status: passt ? "Passt" : "Abweichung" } }]);
   }
-  return json({ ok: true, reviewId: rec[0].id });
+
+  // Positiver Decision-Kommentar (Max) => automatisch als Regel-Vorschlag
+  // in die Regeln-Tabelle. Max bestaetigt/verwirft dort (Status).
+  let ruleId: string | null = null;
+  if (b.role === "Decision" && passt && (b.comment ?? "").trim().length > 3) {
+    try {
+      const regeln = await atAll(T.regeln, "fields[]=Regel ID");
+      const seq = regeln.reduce((m, r) => {
+        const n = parseInt(String(r.fields["Regel ID"] ?? "").split("-")[1] ?? "0", 10);
+        return Number.isFinite(n) && n > m ? n : m;
+      }, 0) + 1;
+      ruleId = `REG-${String(seq).padStart(2, "0")}`;
+      await atCreate(T.regeln, [{ fields: {
+        "Regel ID": ruleId,
+        Regel: String(b.comment).trim(),
+        Achse: "Allgemein",
+        Status: "Vorschlag",
+        Quelle: `Review ${b.assetId} · ${b.reviewer}`,
+        Erstellt: new Date().toISOString(),
+      } }]);
+    } catch (e) {
+      console.log(`[rules] Vorschlag fehlgeschlagen: ${String(e)}`);
+      ruleId = null;
+    }
+  }
+  return json({ ok: true, reviewId: rec[0].id, ...(ruleId ? { ruleProposal: ruleId } : {}) });
+}
+
+// ---------- Regeln ----------
+async function rules() {
+  const recs = await atAll(T.regeln, "sort[0][field]=Regel ID&sort[0][direction]=asc");
+  return json({
+    rules: recs
+      .filter((r) => r.fields["Status"] !== "Verworfen")
+      .map((r) => ({
+        id: r.fields["Regel ID"] ?? "",
+        regel: r.fields["Regel"] ?? "",
+        achse: r.fields["Achse"] ?? "Allgemein",
+        status: r.fields["Status"] ?? "Vorschlag",
+        quelle: r.fields["Quelle"] ?? "",
+      })),
+  });
 }
 
 // ---------- Undo ----------
@@ -552,6 +595,7 @@ Deno.serve(async (req) => {
     if (route === "queue") return await queue(req);
     if (route === "review" && req.method === "POST") return await review(req);
     if (route === "unreview" && req.method === "POST") return await unreview(req);
+    if (route === "rules") return await rules();
     if (route === "rollup") return await rollup();
     return json({ error: "unknown route", route }, 404);
   } catch (e) {

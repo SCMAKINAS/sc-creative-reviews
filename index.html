@@ -44,6 +44,16 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .acts button{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:9px;padding:11px 2px;font-size:9.5px;font-weight:700;letter-spacing:.06em;cursor:pointer}
 .acts button b{display:block;font-size:16px;margin-bottom:3px;font-weight:500}
 .acts .yes{border-color:#2F5F44}
+.acts .cmt{flex:0 0 64px}
+.subrow{display:flex;gap:7px;padding:0 13px}
+.subrow button{flex:1;background:none;border:0;color:var(--bone2);font-size:10px;letter-spacing:.07em;padding:0 0 12px;cursor:pointer;text-decoration:underline}
+.subrow button[disabled]{opacity:.28;text-decoration:none;cursor:default}
+.sec{font-size:9px;font-weight:700;letter-spacing:.11em;color:var(--bone2);margin:14px 0 7px}
+.rul{background:#141414;border:1px solid #2A2A2A;border-radius:8px;padding:9px 10px;margin-bottom:6px;font-size:11px;line-height:1.45}
+.rul .st{font-size:8px;font-weight:700;letter-spacing:.09em;padding:2px 6px;border-radius:3px;margin-right:6px;vertical-align:1px}
+.rul .st.fest{background:#16301C;color:#7FCE9C;border:1px solid #2F5F44}
+.rul .st.vor{background:#332A12;color:#E5C56B;border:1px solid #6E5A25}
+.rul .q{display:block;font-size:8.5px;color:#6C6862;margin-top:4px;letter-spacing:.04em}
 .undo{width:100%;background:none;border:0;color:var(--bone2);font-size:10px;letter-spacing:.07em;padding:0 0 12px;cursor:pointer;text-decoration:underline}
 .undo[disabled]{opacity:.28;text-decoration:none;cursor:default}
 /* Abweichungs-Sheet */
@@ -184,16 +194,20 @@ function card(){
  KEYS.textContent='RECHTS = PASST · LINKS = ABWEICHUNG · U = ZURÜCK · KLICK/TIPP AUFS BILD = ZOOM';
  V.innerHTML='<div class="stage" id="stage"></div>'+
   '<div class="acts"><button data-v="Abweichung"><b>&#10005;</b>ABWEICHUNG</button>'+
+  '<button class="cmt" id="btncmt"><b>&#9998;</b>NOTIZ</button>'+
   '<button class="yes" data-v="Passt"><b>&#10003;</b>PASST — ALLES</button></div>'+
-  '<button class="undo" id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; Letztes zurücknehmen</button>';
+  '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; Zurücknehmen</button>'+
+  '<button id="rulesbtn">&#167; Creative-Regeln</button></div>';
  var stage=$('stage'),e=document.createElement('div');e.className='card';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
  e.innerHTML='<div class="photo"><img src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
   '<div class="meta"><div><div class="mid">'+esc(a.id)+'</div><div class="msub">'+esc(sub)+'</div></div>'+
   (a.figma?'<a href="'+esc(a.figma)+'" target="_blank" rel="noopener">FIGMA</a>':'')+'</div>';
  stage.appendChild(e);st.t0=Date.now();drag(e,a);
- V.querySelectorAll('.acts button').forEach(function(b){b.onclick=function(){act(b.dataset.v)}});
+ V.querySelectorAll('.acts button[data-v]').forEach(function(b){b.onclick=function(){act(b.dataset.v)}});
+ $('btncmt').onclick=commentSheet;
  $('undo').onclick=undo;
+ $('rulesbtn').onclick=rulesSheet;
  var nx=st.queue[st.idx+1];if(nx&&nx.image){var p=new Image();p.src=nx.image}}
 
 function drag(e,a){
@@ -225,6 +239,54 @@ function go(v){
  if(v==='Passt')commit({v:'Passt',ax:null,tags:[],cm:'',s:s});
  else{st.pend={s:s,ax:'Ausdruck',tags:[]};sheet()}}
 
+// ---- Kommentar-Sheet (auch wenn alles passt) ----
+function commentSheet(){
+ if(V.querySelector('.sheet'))return;
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ var secs=Math.round((Date.now()-st.t0)/1000);
+ s.innerHTML='<h4>NOTIZ ZUM BILD</h4><div class="hint">Kommentar wird mit dem Urteil gespeichert. Positive Kommentare von Max landen automatisch als Regel-Vorschlag in der Regeln-Tabelle.</div>'+
+  '<textarea id="cmx" placeholder="Was fällt dir auf? Was soll so bleiben oder öfter passieren?" style="width:100%;height:84px;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:9px;font-size:12px;font-family:inherit;resize:none"></textarea>'+
+  '<div class="row"><button id="cx">Abbrechen</button><button id="cfail">ABWEICHUNG &rarr;</button><button id="cok" class="save" style="background:#16301C;border-color:#2F5F44;color:#9BE0B4" disabled>PASST &#10003;</button></div>';
+ stage.appendChild(s);
+ var ta=s.querySelector('#cmx'),ok=s.querySelector('#cok');
+ ta.oninput=function(){ok.disabled=!ta.value.trim()};
+ ta.focus();
+ s.querySelector('#cx').onclick=function(){s.remove()};
+ s.querySelector('#cok').onclick=function(){var c=ta.value.trim();s.remove();
+  var card=stage.querySelector('.card');if(card){card.style.transition='transform .25s,opacity .25s';fly(card,'Passt')}
+  commit({v:'Passt',ax:null,tags:[],s:secs,comment:c})};
+ s.querySelector('#cfail').onclick=function(){var c=ta.value.trim();s.remove();
+  st.pend={s:secs,ax:'Ausdruck',tags:[],cm:c};sheet()};
+}
+
+// ---- Regeln-Ansicht ----
+var RULES_CACHE=null;
+function rulesSheet(){
+ if(V.querySelector('.sheet'))return;
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ s.innerHTML='<h4>CREATIVE-REGELN</h4><div class="hint">Fest = gilt. Vorschlag = wartet auf Max. Gespeist aus Max-Feedback, Direction Sheet und Review-Kommentaren.</div>'+
+  '<div id="rlist" style="flex:1;overflow-y:auto">LADE …</div>'+
+  '<div class="row"><button id="rclose">Schließen</button></div>';
+ stage.appendChild(s);
+ s.querySelector('#rclose').onclick=function(){s.remove()};
+ function render(rs){
+  var order=['Allgemein','Ausdruck','Model','Produktdarstellung'];
+  var h='';
+  order.forEach(function(ax){
+   var list=rs.filter(function(r){return r.achse===ax});
+   if(!list.length)return;
+   h+='<div class="sec">'+esc(ax.toUpperCase())+'</div>';
+   list.forEach(function(r){
+    h+='<div class="rul"><span class="st '+(r.status==='Fest'?'fest':'vor')+'">'+esc(r.status.toUpperCase())+'</span>'+esc(r.regel)+
+     (r.quelle?'<span class="q">'+esc(r.id)+' · '+esc(r.quelle)+'</span>':'')+'</div>'});
+  });
+  s.querySelector('#rlist').innerHTML=h||'Keine Regeln.';
+ }
+ if(RULES_CACHE)render(RULES_CACHE);
+ api('/rules').then(function(d){RULES_CACHE=d.rules;if(document.body.contains(s))render(d.rules)})
+  .catch(function(e){if(document.body.contains(s)&&!RULES_CACHE)s.querySelector('#rlist').innerHTML='Fehler: '+esc(e.message)});
+}
+
 // ---- Abweichungs-Sheet ----
 function customTags(ax){try{return JSON.parse(localStorage.getItem('scr-tags-'+ax)||'[]')}catch(e){return[]}}
 function rememberTag(ax,t){var c=customTags(ax);
@@ -236,7 +298,7 @@ function sheet(){
    return '<button data-a="'+x+'"'+(x==='Ausdruck'?' class="on"':'')+'>'+(x==='Produktdarstellung'?'DARSTELLUNG':x.toUpperCase())+'</button>'}).join('')+'</div>'+
   '<div class="chips" id="fc"></div>'+
   '<div class="newin"><input id="nt" placeholder="Eigener Grund als neuer Tag …"><button id="na">ANLEGEN</button></div>'+
-  '<div class="cmt"><input id="cm" placeholder="Optionaler Kommentar (1 Satz)"></div>'+
+  '<div class="cmt"><input id="cm" placeholder="Optionaler Kommentar (1 Satz)" value="'+esc(st.pend.cm||'')+'"></div>'+
   '<div class="row"><button id="ca">Abbrechen</button><button id="sv" class="save" disabled>SPEICHERN</button></div>';
  stage.appendChild(s);
  var fc=s.querySelector('#fc'),sv=s.querySelector('#sv');
