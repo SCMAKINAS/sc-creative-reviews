@@ -200,7 +200,7 @@ function card(){
   '<button id="rulesbtn">&#167; Creative-Regeln</button></div>';
  var stage=$('stage'),e=document.createElement('div');e.className='card';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
- e.innerHTML='<div class="photo"><img src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
+ e.innerHTML='<div class="photo"><img id="cardimg" src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
   '<div class="meta"><div><div class="mid">'+esc(a.id)+'</div><div class="msub">'+esc(sub)+'</div></div>'+
   (a.figma?'<a href="'+esc(a.figma)+'" target="_blank" rel="noopener">FIGMA</a>':'')+'</div>';
  stage.appendChild(e);st.t0=Date.now();drag(e,a);
@@ -208,7 +208,14 @@ function card(){
  $('btncmt').onclick=commentSheet;
  $('undo').onclick=undo;
  $('rulesbtn').onclick=rulesSheet;
- var nx=st.queue[st.idx+1];if(nx&&nx.image){var p=new Image();p.src=nx.image}}
+ // Volle Aufloesung im Hintergrund nachladen und unbemerkt einwechseln
+ if(a.imageFull&&a.imageFull!==a.image){
+  var hi=new Image();hi.src=a.imageFull;
+  hi.onload=function(){var ci=e.querySelector('#cardimg');if(ci&&cur()===a)ci.src=a.imageFull};
+ }
+ // Naechste zwei Karten vorladen (Thumbs)
+ [1,2].forEach(function(off){var nx=st.queue[st.idx+off];
+  if(nx&&nx.image){var p=new Image();p.src=nx.image}})}
 
 function drag(e,a){
  var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
@@ -227,7 +234,7 @@ function drag(e,a){
   var v=dx>90?'Passt':dx<-90?'Abweichung':null;
   if(v){fly(e,v);go(v)}
   else{e.style.transform='';stp.style.opacity=0;
-   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a.image)}
+   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a.imageFull||a.image)}
   dx=0});
  e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
 

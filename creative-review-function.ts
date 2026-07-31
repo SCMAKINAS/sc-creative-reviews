@@ -409,7 +409,9 @@ async function queue(req?: Request) {
       produkt: r.fields["Produkt"] ?? "",
       colorway: r.fields["Colorway"] ?? "",
       batch: r.fields["Batch"] ?? "",
-      image: r.fields["Preview"]?.[0]?.url ?? null,
+      // Thumbnail zuerst (schnell), volle Aufloesung fuer Zoom/Nachladen.
+      image: r.fields["Preview"]?.[0]?.thumbnails?.large?.url ?? r.fields["Preview"]?.[0]?.url ?? null,
+      imageFull: r.fields["Preview"]?.[0]?.url ?? null,
       figma: r.fields["Figma Link"] ?? null,
     })),
   });
