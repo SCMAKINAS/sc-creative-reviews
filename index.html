@@ -30,9 +30,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--bone);outline-o
 h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:.1em;margin:0 0 4px}
 .hint{font-size:9.5px;color:var(--bone2);line-height:1.5;margin-bottom:12px}
 /* Review */
-.stage{position:relative;height:472px;padding:13px}
+.stage{position:relative;height:clamp(430px,62vh,720px);padding:13px}
 .card{position:absolute;inset:13px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;touch-action:none;cursor:grab}
-.photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0}
+.photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0;cursor:zoom-in}
 .photo img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
 .photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
 .stamp{position:absolute;top:26%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:24px;letter-spacing:.1em;padding:6px 14px;border:4px solid;border-radius:7px;opacity:0;z-index:3;pointer-events:none;white-space:nowrap}
@@ -79,9 +79,10 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 /* Vollbild-Zoom */
 .viewer{position:fixed;inset:0;background:#000;display:none;z-index:60;touch-action:none;overflow:hidden}
 .viewer.open{display:block}
-.viewer img{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+.viewer img{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none;cursor:grab}
 .viewer .vclose{position:fixed;top:12px;right:12px;z-index:61;width:38px;height:38px;border-radius:999px;border:1px solid var(--line);background:#0E0E0Ed9;color:var(--bone);font-size:16px;cursor:pointer}
 .viewer .vhint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:61;color:var(--bone2);font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;padding:4px 10px;border-radius:3px;white-space:nowrap}
+@media(min-width:760px){#app{max-width:480px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -180,7 +181,7 @@ function card(){
  var a=cur();
  if(!a){summary();return}
  bar(st.idx/st.total*100,'REVIEW',(st.idx+1)+'/'+st.total);
- KEYS.textContent='RECHTS = PASST · LINKS = ABWEICHUNG · U = ZURÜCK · TIPP = ZOOM';
+ KEYS.textContent='RECHTS = PASST · LINKS = ABWEICHUNG · U = ZURÜCK · KLICK/TIPP AUFS BILD = ZOOM';
  V.innerHTML='<div class="stage" id="stage"></div>'+
   '<div class="acts"><button data-v="Abweichung"><b>&#10005;</b>ABWEICHUNG</button>'+
   '<button class="yes" data-v="Passt"><b>&#10003;</b>PASST — ALLES</button></div>'+
@@ -196,10 +197,10 @@ function card(){
  var nx=st.queue[st.idx+1];if(nx&&nx.image){var p=new Image();p.src=nx.image}}
 
 function drag(e,a){
- var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,stp=e.querySelector('.stamp');
+ var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
  e.addEventListener('pointerdown',function(ev){
   if(ev.target.closest('a'))return;
-  on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();
+  on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();dt=ev.target;
   try{e.setPointerCapture(ev.pointerId)}catch(x){}e.style.transition='none'});
  e.addEventListener('pointermove',function(ev){if(!on)return;dx=ev.clientX-sx;
   if(Math.abs(dx)>6||Math.abs(ev.clientY-sy)>6)moved=true;
@@ -212,7 +213,7 @@ function drag(e,a){
   var v=dx>90?'Passt':dx<-90?'Abweichung':null;
   if(v){fly(e,v);go(v)}
   else{e.style.transform='';stp.style.opacity=0;
-   if(!moved&&Date.now()-pt0<350&&ev.target.closest('.photo'))openViewer(a.image)}
+   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a.image)}
   dx=0});
  e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
 
