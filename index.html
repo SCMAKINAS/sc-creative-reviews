@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>Stay Cold · Creative Review v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0E0E0E;--ink2:#1C1C1C;--bone:#EDE8DF;--bone2:#B8B2A7;--blood:#B01F1F;--ok:#3E8E5A;--warn:#C99A2E;--line:#333}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#050505;color:var(--bone);font-family:'DM Sans',system-ui,sans-serif}
+body{display:flex;justify-content:center;padding:14px 12px 28px;min-height:100vh}
+#app{width:100%;max-width:420px}
+button,input{font-family:'DM Sans',system-ui,sans-serif}
+button:focus-visible,input:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.shell{background:var(--ink);border:1px solid #2E2E2E;border-radius:14px;overflow:hidden}
+.head{background:#000;padding:11px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #2E2E2E}
+.logo{font-family:'Oswald','Arial Narrow',sans-serif;font-weight:700;font-size:14px;letter-spacing:.14em;line-height:1}
+.logo small{display:block;font-size:8px;letter-spacing:.2em;color:var(--bone2);font-weight:500;margin-top:3px}
+.pill{margin-left:auto;display:flex;background:#161616;border:1px solid var(--line);border-radius:20px;padding:2px}
+.pill button{background:none;border:0;color:var(--bone2);font-size:9px;font-weight:700;letter-spacing:.07em;padding:5px 8px;border-radius:16px;cursor:pointer;white-space:nowrap}
+.pill button.on{background:var(--blood);color:#fff}
+.pill button small{display:block;font-size:6.5px;letter-spacing:.14em;font-weight:500;opacity:.75}
+.bar{padding:8px 13px;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--bone2);letter-spacing:.05em;border-bottom:1px solid #222}
+.prog{flex:1;height:3px;background:#262626;border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--blood);transition:width .3s}
+.body{padding:13px}
+h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:.1em;margin:0 0 4px}
+.hint{font-size:9.5px;color:var(--bone2);line-height:1.5;margin-bottom:12px}
+/* Review */
+.stage{position:relative;height:472px;padding:13px}
+.card{position:absolute;inset:13px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;touch-action:none;cursor:grab}
+.photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0}
+.photo img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
+.stamp{position:absolute;top:26%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:24px;letter-spacing:.1em;padding:6px 14px;border:4px solid;border-radius:7px;opacity:0;z-index:3;pointer-events:none;white-space:nowrap}
+.meta{padding:9px 12px 11px;border-top:1px solid var(--line);background:#141414;display:flex;align-items:center;gap:8px}
+.mid{font-family:'Oswald','Arial Narrow',sans-serif;font-size:14px;letter-spacing:.09em}
+.msub{font-size:10px;color:var(--bone2);margin-top:3px}
+.meta a{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--bone2);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:5px 8px}
+.acts{display:flex;gap:7px;padding:0 13px 11px}
+.acts button{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:9px;padding:11px 2px;font-size:9.5px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+.acts button b{display:block;font-size:16px;margin-bottom:3px;font-weight:500}
+.acts .yes{border-color:#2F5F44}
+.undo{width:100%;background:none;border:0;color:var(--bone2);font-size:10px;letter-spacing:.07em;padding:0 0 12px;cursor:pointer;text-decoration:underline}
+.undo[disabled]{opacity:.28;text-decoration:none;cursor:default}
+/* Abweichungs-Sheet */
+.sheet{position:absolute;inset:0;background:#0a0a0af7;padding:13px;display:flex;flex-direction:column;z-index:10;overflow-y:auto}
+.axsel{display:flex;gap:5px;margin-bottom:12px}
+.axsel button{flex:1;background:#181818;border:1px solid #363636;color:var(--bone2);border-radius:8px;padding:9px 4px;font-size:9.5px;font-weight:700;cursor:pointer}
+.axsel button.on{background:var(--blood);border-color:var(--blood);color:#fff}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{background:#181818;border:1px solid #363636;color:var(--bone2);border-radius:14px;padding:5px 9px;font-size:10px;cursor:pointer;text-align:left}
+.chips button.on{background:var(--blood);border-color:var(--blood);color:#fff;font-weight:500}
+.newin{display:flex;gap:5px;margin-top:8px}
+.newin input{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px}
+.newin button{background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:7px;padding:0 12px;font-size:10px;font-weight:700;cursor:pointer}
+.cmt{margin-top:8px}
+.cmt input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px}
+.row{display:flex;gap:7px;margin-top:11px}
+.row button{flex:1;border-radius:8px;padding:11px;font-size:11px;font-weight:700;letter-spacing:.06em;cursor:pointer;border:1px solid var(--line);background:#161616;color:var(--bone2)}
+.save{background:var(--blood);border-color:var(--blood);color:#fff}
+.save[disabled]{opacity:.35;cursor:not-allowed}
+.wide{width:100%;background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:9px;padding:12px;font-size:11px;font-weight:700;letter-spacing:.07em;cursor:pointer}
+/* Summary / Zustaende */
+.tiles{display:flex;gap:6px;margin:12px 0}
+.tile{flex:1;background:#161616;border:1px solid #2E2E2E;border-radius:8px;padding:8px 4px;text-align:center}
+.tile b{display:block;font-family:'Oswald','Arial Narrow',sans-serif;font-size:20px;line-height:1}
+.tile span{font-size:8px;letter-spacing:.07em;color:var(--bone2)}
+.callout{background:#161616;border:1px solid #2E2E2E;border-left:3px solid var(--blood);border-radius:8px;padding:10px 11px;margin-top:13px;font-size:11px;line-height:1.5}
+.callout b{font-family:'Oswald','Arial Narrow',sans-serif;font-size:14px;letter-spacing:.06em}
+.foot{font-size:9.5px;color:var(--bone2);line-height:1.6;margin-top:13px}
+.keyask input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:11px;font-size:12px;text-align:center;letter-spacing:.05em;margin:10px 0}
+.loadbox{padding:40px 13px;text-align:center;font-size:10px;letter-spacing:.08em;color:var(--bone2)}
+.keys{text-align:center;font-size:9px;color:#6C6862;letter-spacing:.08em;margin-top:10px}
+.toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#1C1C1C;border:1px solid var(--blood);color:var(--bone);padding:9px 14px;border-radius:8px;font-size:11px;z-index:80;display:none;max-width:88vw}
+/* Vollbild-Zoom */
+.viewer{position:fixed;inset:0;background:#000;display:none;z-index:60;touch-action:none;overflow:hidden}
+.viewer.open{display:block}
+.viewer img{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none}
+.viewer .vclose{position:fixed;top:12px;right:12px;z-index:61;width:38px;height:38px;border-radius:999px;border:1px solid var(--line);background:#0E0E0Ed9;color:var(--bone);font-size:16px;cursor:pointer}
+.viewer .vhint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:61;color:var(--bone2);font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;padding:4px 10px;border-radius:3px;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="shell">
+    <div class="head">
+      <div class="logo">STAY COLD<small>CREATIVE REVIEW · AI SHOOTING</small></div>
+      <div class="pill" id="pill">
+        <button data-r="Max" data-role="Decision">MAX</button>
+        <button data-r="Jonas" data-role="Shadow">JONAS<small>SHADOW</small></button>
+        <button data-r="Flo" data-role="Shadow">FLO<small>SHADOW</small></button>
+      </div>
+    </div>
+    <div class="bar"><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
+    <div id="view"></div>
+  </div>
+  <div class="keys" id="keys"></div>
+</div>
+
+<div class="viewer" id="viewer">
+  <img id="viewerimg" alt="">
+  <button class="vclose" id="viewerclose">&#10005;</button>
+  <div class="vhint">PINCH / DOPPELTIPP ZOOMEN · ZIEHEN BEWEGEN</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
+var KEY=null;
+
+var FAIL={
+ Ausdruck:['Pose gestellt','Blick zu freundlich','Energie zu clean','Location off','Licht zu weich','Zu generisch','Kein Brand-Code erkennbar','Gruppen-Konstellation bricht'],
+ Model:['Casting off','Gesicht verzerrt','Wirkt gecastet / Stock','Inkonsistent zur Kartei','Typ passt nicht zum Look','Hände / Finger'],
+ Produktdarstellung:['Print falsch platziert','Logo verzerrt / falsch','Farbe stimmt nicht','Cut / Fit falsch','Detail erfunden','Produkt nicht erkennbar','Stoff-Fall unnatürlich']};
+
+var st={reviewer:localStorage.getItem('scr-reviewer')||'Max',role:'Decision',
+ queue:[],idx:0,total:0,session:'',t0:0,pend:null,busy:false,hist:[]};
+
+var V=document.getElementById('view'),KEYS=document.getElementById('keys');
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function toast(m){var t=$('toast');t.textContent=m;t.style.display='block';setTimeout(function(){t.style.display='none'},3800)}
+function bar(p,l,r){$('prog').style.width=p+'%';$('phase').textContent=l;$('cnt').textContent=r}
+function api(path,opts){opts=opts||{};
+ opts.headers=Object.assign({'x-review-key':KEY,'content-type':'application/json'},opts.headers||{});
+ return fetch(API+path,opts).then(function(r){
+  return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
+
+// ---- Key ----
+function initKey(){
+ var q=new URLSearchParams(location.search);
+ if(q.get('key')){KEY=q.get('key');localStorage.setItem('scr-key',KEY);history.replaceState(null,'',location.pathname)}
+ else KEY=localStorage.getItem('scr-key');
+ if(!KEY){askKey();return false}
+ return true}
+function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
+ V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
+ '<div class="hint">Einmal eingeben — wird auf diesem Gerät gespeichert.</div>'+
+ '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
+ $('kg').onclick=function(){var v=$('ki').value.trim();if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
+ $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
+
+// ---- Reviewer-Pill ----
+function pill(){
+ var btns=document.querySelectorAll('#pill button');
+ btns.forEach(function(b){
+  b.classList.toggle('on',b.dataset.r===st.reviewer);
+  if(b.dataset.r===st.reviewer)st.role=b.dataset.role;
+  b.onclick=function(){if(st.reviewer===b.dataset.r)return;
+   st.reviewer=b.dataset.r;st.role=b.dataset.role;
+   localStorage.setItem('scr-reviewer',st.reviewer);pill();load()}})}
+
+// ---- Queue ----
+function load(){
+ bar(0,'REVIEW','');KEYS.textContent='';
+ V.innerHTML='<div class="loadbox">LADE QUEUE FÜR '+esc(st.reviewer.toUpperCase())+' …</div>';
+ api('/queue?reviewer='+encodeURIComponent(st.reviewer)).then(function(d){
+  st.queue=d.assets.filter(function(a){return a.image});
+  st.idx=0;st.total=st.queue.length;st.hist=[];st.pend=null;
+  st.session=st.reviewer+'-'+new Date().toISOString().slice(0,16);
+  card()}).catch(function(e){
+  if(String(e.message).indexOf('unauthorized')>=0){localStorage.removeItem('scr-key');askKey()}
+  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(e.message)+'</div>'})}
+
+function cur(){return st.queue[st.idx]}
+
+// ---- Review-Karte ----
+var ST={Passt:['PASST','var(--ok)'],Abweichung:['ABWEICHUNG','var(--blood)']};
+function card(){
+ var a=cur();
+ if(!a){summary();return}
+ bar(st.idx/st.total*100,'REVIEW',(st.idx+1)+'/'+st.total);
+ KEYS.textContent='RECHTS = PASST · LINKS = ABWEICHUNG · U = ZURÜCK · TIPP = ZOOM';
+ V.innerHTML='<div class="stage" id="stage"></div>'+
+  '<div class="acts"><button data-v="Abweichung"><b>&#10005;</b>ABWEICHUNG</button>'+
+  '<button class="yes" data-v="Passt"><b>&#10003;</b>PASST — ALLE DREI</button></div>'+
+  '<button class="undo" id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; Letztes zurücknehmen</button>';
+ var stage=$('stage'),e=document.createElement('div');e.className='card';
+ var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
+ e.innerHTML='<div class="photo"><img src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
+  '<div class="meta"><div><div class="mid">'+esc(a.id)+'</div><div class="msub">'+esc(sub)+'</div></div>'+
+  (a.figma?'<a href="'+esc(a.figma)+'" target="_blank" rel="noopener">FIGMA</a>':'')+'</div>';
+ stage.appendChild(e);st.t0=Date.now();drag(e,a);
+ V.querySelectorAll('.acts button').forEach(function(b){b.onclick=function(){act(b.dataset.v)}});
+ $('undo').onclick=undo;
+ var nx=st.queue[st.idx+1];if(nx&&nx.image){var p=new Image();p.src=nx.image}}
+
+function drag(e,a){
+ var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,stp=e.querySelector('.stamp');
+ e.addEventListener('pointerdown',function(ev){
+  if(ev.target.closest('a'))return;
+  on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();
+  try{e.setPointerCapture(ev.pointerId)}catch(x){}e.style.transition='none'});
+ e.addEventListener('pointermove',function(ev){if(!on)return;dx=ev.clientX-sx;
+  if(Math.abs(dx)>6||Math.abs(ev.clientY-sy)>6)moved=true;
+  e.style.transform='translateX('+dx+'px) rotate('+dx/18+'deg)';
+  var v=dx>45?'Passt':dx<-45?'Abweichung':null;
+  if(v){stp.textContent=ST[v][0];stp.style.color=ST[v][1];stp.style.borderColor=ST[v][1];
+   stp.style.opacity=Math.min(1,(Math.abs(dx)-45)/55)}else stp.style.opacity=0});
+ e.addEventListener('pointerup',function(ev){if(!on)return;on=false;
+  e.style.transition='transform .25s,opacity .25s';
+  var v=dx>90?'Passt':dx<-90?'Abweichung':null;
+  if(v){fly(e,v);go(v)}
+  else{e.style.transform='';stp.style.opacity=0;
+   if(!moved&&Date.now()-pt0<350&&ev.target.closest('.photo'))openViewer(a.image)}
+  dx=0});
+ e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
+
+function fly(e,v){e.style.transform='translateX('+(v==='Passt'?480:-480)+'px) rotate('+(v==='Passt'?26:-26)+'deg)';e.style.opacity='0'}
+function act(v){if(V.querySelector('.sheet'))return;var c=V.querySelector('.card');
+ if(c){c.style.transition='transform .25s,opacity .25s';if(v!=='sheet')fly(c,v)}go(v)}
+function go(v){
+ var s=Math.round((Date.now()-st.t0)/1000);
+ if(v==='Passt')commit({v:'Passt',ax:null,tags:[],cm:'',s:s});
+ else{st.pend={s:s,ax:'Ausdruck',tags:[]};sheet()}}
+
+// ---- Abweichungs-Sheet ----
+function customTags(ax){try{return JSON.parse(localStorage.getItem('scr-tags-'+ax)||'[]')}catch(e){return[]}}
+function rememberTag(ax,t){var c=customTags(ax);
+ if(c.indexOf(t)<0&&FAIL[ax].indexOf(t)<0){c.push(t);localStorage.setItem('scr-tags-'+ax,JSON.stringify(c))}}
+function sheet(){
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ s.innerHTML='<h4>WAS IST OFF?</h4><div class="hint">Die Achse bestimmt, wohin das Learning fließt: Ausdruck ins Vokabular, Model in die Kartei, Darstellung als Prompt-Fix an Flo. Fehlt ein Grund? Unten als neuen Tag anlegen.</div>'+
+  '<div class="axsel">'+['Ausdruck','Model','Produktdarstellung'].map(function(x){
+   return '<button data-a="'+x+'"'+(x==='Ausdruck'?' class="on"':'')+'>'+(x==='Produktdarstellung'?'DARSTELLUNG':x.toUpperCase())+'</button>'}).join('')+'</div>'+
+  '<div class="chips" id="fc"></div>'+
+  '<div class="newin"><input id="nt" placeholder="Eigener Grund als neuer Tag …"><button id="na">ANLEGEN</button></div>'+
+  '<div class="cmt"><input id="cm" placeholder="Optionaler Kommentar (1 Satz)"></div>'+
+  '<div class="row"><button id="ca">Abbrechen</button><button id="sv" class="save" disabled>SPEICHERN</button></div>';
+ stage.appendChild(s);
+ var fc=s.querySelector('#fc'),sv=s.querySelector('#sv');
+ function chips(){
+  var all=FAIL[st.pend.ax].concat(customTags(st.pend.ax));
+  fc.innerHTML=all.map(function(t){
+   return '<button data-t="'+esc(t)+'"'+(st.pend.tags.indexOf(t)>=0?' class="on"':'')+'>'+esc(t)+'</button>'}).join('');
+  fc.querySelectorAll('button').forEach(function(b){b.onclick=function(){
+   var t=b.dataset.t,k=st.pend.tags.indexOf(t);
+   if(k<0){st.pend.tags.push(t);b.classList.add('on')}else{st.pend.tags.splice(k,1);b.classList.remove('on')}
+   sv.disabled=!st.pend.tags.length}})}
+ chips();
+ s.querySelectorAll('.axsel button').forEach(function(b){b.onclick=function(){
+  s.querySelectorAll('.axsel button').forEach(function(x){x.classList.remove('on')});
+  b.classList.add('on');st.pend.ax=b.dataset.a;st.pend.tags=[];sv.disabled=true;chips()}});
+ s.querySelector('#na').onclick=function(){
+  var v=s.querySelector('#nt').value.trim();if(!v)return;
+  rememberTag(st.pend.ax,v);
+  if(st.pend.tags.indexOf(v)<0)st.pend.tags.push(v);
+  s.querySelector('#nt').value='';sv.disabled=false;chips()};
+ s.querySelector('#nt').onkeydown=function(e){if(e.key==='Enter')s.querySelector('#na').click()};
+ s.querySelector('#ca').onclick=function(){st.pend=null;card()};
+ sv.onclick=function(){var p=st.pend;st.pend=null;
+  var comment=(s.querySelector('#cm')||{value:''}).value;
+  var c=stage.querySelector('.card');if(c){c.style.transition='transform .25s,opacity .25s';fly(c,'Abweichung')}
+  s.remove();commit({v:'Abweichung',ax:p.ax,tags:p.tags,s:p.s,comment:comment})}}
+
+// ---- Speichern + Undo ----
+function commit(r){
+ var a=cur();if(!a)return;
+ var body={recordId:a.recordId,assetId:a.id,reviewer:st.reviewer,role:st.role,
+  verdict:r.v,axis:r.ax,tags:r.tags,comment:(r.comment||'').trim(),seconds:r.s,session:st.session};
+ var p=api('/review',{method:'POST',body:JSON.stringify(body)}).catch(function(e){
+  toast('Speichern fehlgeschlagen: '+a.id+' — beim nächsten Laden wieder in der Queue');return null});
+ st.hist.push({a:a,v:r.v,p:p});
+ st.idx++;setTimeout(card,180)}
+function undo(){
+ if(!st.hist.length||st.busy)return;
+ st.busy=true;
+ var h=st.hist.pop();
+ h.p.then(function(res){
+  if(res&&res.reviewId)return api('/unreview',{method:'POST',
+   body:JSON.stringify({reviewId:res.reviewId,recordId:h.a.recordId,role:st.role})});
+ }).then(function(){st.busy=false;st.idx--;st.pend=null;card()})
+  .catch(function(){st.busy=false;st.hist.push(h);toast('Zurücknehmen fehlgeschlagen')})}
+
+// ---- Summary ----
+function summary(){
+ bar(100,'FERTIG','');KEYS.textContent='';
+ var n=st.hist.length,ok=st.hist.filter(function(h){return h.v==='Passt'}).length;
+ var h='<div class="body"><h4>ALLES REVIEWED</h4>'+
+  '<div class="hint">Keine offenen Assets für '+esc(st.reviewer)+' ('+esc(st.role)+').</div>';
+ if(n){h+='<div class="tiles"><div class="tile"><b>'+ok+'</b><span>PASST</span></div>'+
+  '<div class="tile"><b>'+(n-ok)+'</b><span>ABWEICHUNG</span></div>'+
+  '<div class="tile"><b>'+Math.round(ok/n*100)+'%</b><span>QUOTE</span></div></div>';
+ }
+ h+='<div class="foot">&rarr; Reviews liegen in Airtable (v3 — AI Shooting Learnings)<br>'+
+  '&rarr; Rollup &amp; bestätigte Flags: /rollup<br>'+
+  '&rarr; Neue Bilder erscheinen nach dem nächsten Sync automatisch</div></div>';
+ V.innerHTML=h}
+
+// ---- Tastatur ----
+document.addEventListener('keydown',function(e){
+ if(!st.queue.length||V.querySelector('.sheet')||/INPUT/.test(e.target.tagName))return;
+ if($('viewer').classList.contains('open')){if(e.key==='Escape')closeViewer();return}
+ if(!cur())return;
+ if(e.key==='ArrowRight'){e.preventDefault();act('Passt')}
+ else if(e.key==='ArrowLeft'){e.preventDefault();act('Abweichung')}
+ else if(e.key==='u'||e.key==='U')undo()});
+
+// ---- Vollbild-Zoom ----
+var vz={scale:1,x:0,y:0,natW:0,natH:0,min:1};
+function openViewer(src){
+ var img=$('viewerimg');img.src=src;
+ $('viewer').classList.add('open');
+ img.onload=function(){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()};
+ if(img.complete&&img.naturalWidth){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()}}
+function closeViewer(){$('viewer').classList.remove('open')}
+function fitV(){var vw=innerWidth,vh=innerHeight;
+ vz.min=Math.min(vw/vz.natW,vh/vz.natH);vz.scale=vz.min;
+ vz.x=(vw-vz.natW*vz.scale)/2;vz.y=(vh-vz.natH*vz.scale)/2;applyV()}
+function applyV(){$('viewerimg').style.transform='translate('+vz.x+'px,'+vz.y+'px) scale('+vz.scale+')'}
+function clampV(){var vw=innerWidth,vh=innerHeight,w=vz.natW*vz.scale,h=vz.natH*vz.scale;
+ vz.x=w<=vw?(vw-w)/2:Math.min(0,Math.max(vw-w,vz.x));
+ vz.y=h<=vh?(vh-h)/2:Math.min(0,Math.max(vh-h,vz.y))}
+function zoomAt(cx,cy,f){var ns=Math.min(Math.max(vz.scale*f,vz.min),vz.min*8);
+ vz.x=cx-(cx-vz.x)*(ns/vz.scale);vz.y=cy-(cy-vz.y)*(ns/vz.scale);vz.scale=ns;clampV();applyV()}
+$('viewerclose').onclick=closeViewer;
+(function(){
+ var v=$('viewer'),pts=new Map(),ld=0,lt=0,drg=false,lx=0,ly=0;
+ v.addEventListener('pointerdown',function(e){
+  if(e.target.id==='viewerclose')return;
+  v.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===1){drg=true;lx=e.clientX;ly=e.clientY;
+   var now=Date.now();
+   if(now-lt<280){if(vz.scale>vz.min*1.05)fitV();else zoomAt(e.clientX,e.clientY,3);lt=0}else lt=now}
+  else if(pts.size===2){var a=Array.from(pts.values());ld=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
+ v.addEventListener('pointermove',function(e){
+  if(!pts.has(e.pointerId))return;
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===2){var a=Array.from(pts.values());
+   var d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),cx=(a[0].x+a[1].x)/2,cy=(a[0].y+a[1].y)/2;
+   if(ld>0)zoomAt(cx,cy,d/ld);ld=d}
+  else if(drg&&pts.size===1){vz.x+=e.clientX-lx;vz.y+=e.clientY-ly;lx=e.clientX;ly=e.clientY;clampV();applyV()}});
+ function up(e){pts.delete(e.pointerId);if(pts.size<2)ld=0;if(!pts.size)drg=false}
+ v.addEventListener('pointerup',up);v.addEventListener('pointercancel',up);
+ v.addEventListener('wheel',function(e){e.preventDefault();zoomAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15)},{passive:false});
+})();
+
+// ---- Start ----
+pill();
+if(initKey())load();
+})();
+</script>
+</body>
+</html>
