@@ -27,7 +27,7 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 | Datei | Zweck |
 |---|---|
 | `index.html` | Die komplette Review-App (Single File, keine Build-Schritte) |
-| `creative-review-function.ts` | Quellcode der Supabase Edge Function (Referenz/Versionierung — deployt wird über Supabase, nicht von hier) |
+| `creative-review-function.ts` | Quellcode der Supabase Edge Function (Referenz/Versionierung — deployt wird über Supabase, nicht von hier). Auto-Sync: pg_cron-Job `creative-review-board-mirror`, alle 2 h |
 | `README.md` | Diese Doku |
 
 ## Rollen & Reviewer
@@ -60,9 +60,11 @@ Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 ## Standard-Prozesse
 
 **Neue Bilder reviewen (nach jedem AI-Shooting):**
-1. Flo legt die Bilder in die Board-Spalte „scenes for approval" — idealerweise **pro Szene eine benannte Section** (der Name wird zum Cluster in Airtable).
-2. Sync anstoßen: `curl -X POST "<API>/sync?limit=100" -H "x-review-key: <KEY>"` — ggf. mehrfach, bis `"Nichts Neues"` kommt.
+1. Flo legt die Bilder in die Board-Spalte „scenes for approval" — idealerweise **pro Szene eine benannte Section** (der Name wird zum Cluster in Airtable). Alte Pakete löscht Flo nach Feedback vom Board.
+2. **Automatisch:** Der Supabase-Cron `creative-review-board-mirror` synct alle 2 Stunden (Minute 20) — neue Bilder erscheinen ohne Zutun in der App-Queue. **Sofort:** Skill `/creative-review-sync` in Claude starten (synct bis „Nichts Neues" und meldet Queue-Stände) oder manuell `curl -X POST "<API>/sync?limit=100" -H "x-review-key: <KEY>"`.
 3. Max, Jonas, Flo reviewen in der App. Neue Fail-Gründe entstehen über das Freitext-Feld direkt in der App.
+
+**Baseline (Übersprungenes):** Board-Bilder, die außerhalb der App gefeedbackt wurden, kann `POST /baseline` einfrieren — der Sync ignoriert sie dann dauerhaft (gespeichert in Supabase-Tabelle `sync_baseline`). Am 31.07.2026 wurden so die 227 Rest-Bilder des ersten Pakets ausgenommen (Feedback lief via Slack).
 4. Learnings ziehen: `GET /rollup` → `flags` mit Max' bestätigten Kritikpunkten durchgehen, betroffene Models/Szenen in den Karteien auf „Bedingt"/„Aussortiert" setzen.
 
 **App ändern:** `index.html` in diesem Repo editieren/ersetzen → GitHub Pages deployt automatisch (~1 Min). Kein Build nötig.

@@ -13,6 +13,7 @@
 //   POST /review   ein Einzelbild-Review
 //   POST /unreview Review zuruecknehmen {reviewId, recordId?}
 //   GET  /rules    Creative-Regeln (Fest + Vorschlag)
+//   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
@@ -83,6 +84,27 @@ async function atPatch(table: string, rows: any[]): Promise<number> {
     n += r.records.length;
   }
   return n;
+}
+
+// ---------- Postgres (Baseline-Speicher via PostgREST) ----------
+const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+async function pg(path: string, init: RequestInit = {}): Promise<any> {
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
+      "content-type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal",
+      ...(init.headers ?? {}),
+    },
+  });
+  if (!r.ok) throw new Error(`Postgres ${r.status}: ${await r.text()}`);
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+async function baselineIds(): Promise<Set<string>> {
+  const rows = await pg("sync_baseline?select=node_id") ?? [];
+  return new Set(rows.map((r: any) => r.node_id));
 }
 
 // ---------- Figma ----------
@@ -230,6 +252,11 @@ async function sync(req: Request) {
   const existing = await atAll(T.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
   mark(`airtable existing: ${existing.length} assets`);
   const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  // Baseline: Board-Stand, der bewusst NICHT importiert wird (bereits via Slack
+  // gefeedbackt). Nur Neues nach der Baseline landet in der App.
+  const base = await baselineIds();
+  base.forEach((id) => seen.add(id));
+  mark(`baseline: ${base.size} nodes ausgeschlossen`);
   let seq = existing.reduce((m, r) => {
     const k = parseInt(String(r.fields["Asset ID"] ?? "").split("-")[1] ?? "0", 10);
     return Number.isFinite(k) && k > m ? k : m;
@@ -451,6 +478,21 @@ async function review(req: Request) {
   return json({ ok: true, reviewId: rec[0].id, ...(ruleId ? { ruleProposal: ruleId } : {}) });
 }
 
+// ---------- Baseline ----------
+// Friert den aktuellen Board-Stand ein: alle Bilder in der Spalte, die noch
+// nicht als Asset importiert sind, werden kuenftig vom Sync uebersprungen.
+async function baseline() {
+  const col = await boardColumn();
+  if ("error" in col) return col.error;
+  const existing = await atAll(T.assets, "fields[]=Figma Node ID");
+  const imported = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  const toSkip = col.inCol!.filter((n) => !imported.has(n.id)).map((n) => ({ node_id: n.id }));
+  for (let i = 0; i < toSkip.length; i += 500) {
+    await pg("sync_baseline", { method: "POST", body: JSON.stringify(toSkip.slice(i, i + 500)) });
+  }
+  return json({ baselined: toSkip.length, importiert: imported.size, boardGesamt: col.inCol!.length });
+}
+
 // ---------- Regeln ----------
 async function rules() {
   const recs = await atAll(T.regeln, "sort[0][field]=Regel ID&sort[0][direction]=asc");
@@ -596,6 +638,7 @@ Deno.serve(async (req) => {
     if (route === "review" && req.method === "POST") return await review(req);
     if (route === "unreview" && req.method === "POST") return await unreview(req);
     if (route === "rules") return await rules();
+    if (route === "baseline" && req.method === "POST") return await baseline();
     if (route === "rollup") return await rollup();
     return json({ error: "unknown route", route }, 404);
   } catch (e) {
