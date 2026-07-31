@@ -186,17 +186,17 @@ function load(){
 function cur(){return st.queue[st.idx]}
 
 // ---- Review-Karte ----
-var ST={Passt:['PASST','var(--ok)'],Abweichung:['ABWEICHUNG','var(--blood)']};
+var ST={Passt:['CONFIRMED','var(--ok)'],Abweichung:['REJECTED','var(--blood)']};
 function card(){
  var a=cur();
  if(!a){summary();return}
  bar(st.idx/st.total*100,'REVIEW',(st.idx+1)+'/'+st.total);
- KEYS.textContent='RECHTS = PASST · LINKS = ABWEICHUNG · U = ZURÜCK · KLICK/TIPP AUFS BILD = ZOOM';
+ KEYS.textContent='RECHTS = CONFIRM · LINKS = REJECT · U = UNDO · KLICK/TIPP AUFS BILD = ZOOM';
  V.innerHTML='<div class="stage" id="stage"></div>'+
-  '<div class="acts"><button data-v="Abweichung"><b>&#10005;</b>ABWEICHUNG</button>'+
-  '<button class="cmt" id="btncmt"><b>&#9998;</b>NOTIZ</button>'+
-  '<button class="yes" data-v="Passt"><b>&#10003;</b>PASST — ALLES</button></div>'+
-  '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; Zurücknehmen</button>'+
+  '<div class="acts"><button data-v="Abweichung"><b>&#10005;</b>REJECT</button>'+
+  '<button class="cmt" id="btncmt"><b>&#9998;</b>FEEDBACK</button>'+
+  '<button class="yes" data-v="Passt"><b>&#10003;</b>CONFIRM — ALLES</button></div>'+
+  '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; UNDO</button>'+
   '<button id="rulesbtn">&#167; Creative-Regeln</button></div>';
  var stage=$('stage'),e=document.createElement('div');e.className='card';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
@@ -244,9 +244,9 @@ function commentSheet(){
  if(V.querySelector('.sheet'))return;
  var stage=$('stage'),s=document.createElement('div');s.className='sheet';
  var secs=Math.round((Date.now()-st.t0)/1000);
- s.innerHTML='<h4>NOTIZ ZUM BILD</h4><div class="hint">Kommentar wird mit dem Urteil gespeichert. Positive Kommentare von Max landen automatisch als Regel-Vorschlag in der Regeln-Tabelle.</div>'+
+ s.innerHTML='<h4>FEEDBACK ZUM BILD</h4><div class="hint">Feedback wird mit dem Urteil gespeichert. Positives Feedback von Max landet automatisch als Regel-Vorschlag in der Regeln-Tabelle.</div>'+
   '<textarea id="cmx" placeholder="Was fällt dir auf? Was soll so bleiben oder öfter passieren?" style="width:100%;height:84px;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:9px;font-size:12px;font-family:inherit;resize:none"></textarea>'+
-  '<div class="row"><button id="cx">Abbrechen</button><button id="cfail">ABWEICHUNG &rarr;</button><button id="cok" class="save" style="background:#16301C;border-color:#2F5F44;color:#9BE0B4" disabled>PASST &#10003;</button></div>';
+  '<div class="row"><button id="cx">Abbrechen</button><button id="cfail">REJECT &rarr;</button><button id="cok" class="save" style="background:#16301C;border-color:#2F5F44;color:#9BE0B4" disabled>CONFIRM &#10003;</button></div>';
  stage.appendChild(s);
  var ta=s.querySelector('#cmx'),ok=s.querySelector('#cok');
  ta.oninput=function(){ok.disabled=!ta.value.trim()};
@@ -298,8 +298,8 @@ function sheet(){
    return '<button data-a="'+x+'"'+(x==='Ausdruck'?' class="on"':'')+'>'+(x==='Produktdarstellung'?'DARSTELLUNG':x.toUpperCase())+'</button>'}).join('')+'</div>'+
   '<div class="chips" id="fc"></div>'+
   '<div class="newin"><input id="nt" placeholder="Eigener Grund als neuer Tag …"><button id="na">ANLEGEN</button></div>'+
-  '<div class="cmt"><input id="cm" placeholder="Optionaler Kommentar (1 Satz)" value="'+esc(st.pend.cm||'')+'"></div>'+
-  '<div class="row"><button id="ca">Abbrechen</button><button id="sv" class="save" disabled>SPEICHERN</button></div>';
+  '<div class="cmt"><input id="cm" placeholder="Optionales Feedback (1 Satz)" value="'+esc(st.pend.cm||'')+'"></div>'+
+  '<div class="row"><button id="ca">Abbrechen</button><button id="sv" class="save" disabled>REJECT SPEICHERN</button></div>';
  stage.appendChild(s);
  var fc=s.querySelector('#fc'),sv=s.querySelector('#sv');
  function chips(){
@@ -351,8 +351,8 @@ function summary(){
  var n=st.hist.length,ok=st.hist.filter(function(h){return h.v==='Passt'}).length;
  var h='<div class="body"><h4>ALLES REVIEWED</h4>'+
   '<div class="hint">Keine offenen Assets für '+esc(st.reviewer)+' ('+esc(st.role)+').</div>';
- if(n){h+='<div class="tiles"><div class="tile"><b>'+ok+'</b><span>PASST</span></div>'+
-  '<div class="tile"><b>'+(n-ok)+'</b><span>ABWEICHUNG</span></div>'+
+ if(n){h+='<div class="tiles"><div class="tile"><b>'+ok+'</b><span>CONFIRMED</span></div>'+
+  '<div class="tile"><b>'+(n-ok)+'</b><span>REJECTED</span></div>'+
   '<div class="tile"><b>'+Math.round(ok/n*100)+'%</b><span>QUOTE</span></div></div>';
  }
  h+='<div class="foot">&rarr; Reviews liegen in Airtable (v3 — AI Shooting Learnings)<br>'+
