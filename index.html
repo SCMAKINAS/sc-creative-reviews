@@ -33,7 +33,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .stage{position:relative;height:clamp(430px,62vh,720px);padding:13px}
 .card{position:absolute;inset:13px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;touch-action:none;cursor:grab}
 .photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0;cursor:zoom-in}
-.photo img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.photo img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
 .photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
 .stamp{position:absolute;top:26%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:24px;letter-spacing:.1em;padding:6px 14px;border:4px solid;border-radius:7px;opacity:0;z-index:3;pointer-events:none;white-space:nowrap}
 .meta{padding:9px 12px 11px;border-top:1px solid var(--line);background:#141414;display:flex;align-items:center;gap:8px}
@@ -72,7 +72,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .row{display:flex;gap:7px;margin-top:11px}
 .row button{flex:1;border-radius:8px;padding:11px;font-size:11px;font-weight:700;letter-spacing:.06em;cursor:pointer;border:1px solid var(--line);background:#161616;color:var(--bone2)}
 .save{background:var(--blood);border-color:var(--blood);color:#fff}
-.save[disabled]{opacity:.35;cursor:not-allowed}
+.save[disabled]{opacity:1;background:#161616!important;border-color:var(--line)!important;color:#6C6862!important;cursor:not-allowed}
 .wide{width:100%;background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:9px;padding:12px;font-size:11px;font-weight:700;letter-spacing:.07em;cursor:pointer}
 /* Summary / Zustaende */
 .tiles{display:flex;gap:6px;margin:12px 0}
@@ -134,6 +134,7 @@ var FAIL={
  Model:['Nicht aus der Kartei / nie confirmt','Nicht die Model-Richtung','Model wiederholt sich zu oft','Wirkt gecastet / Stock','Gesicht verzerrt / AI-Fehler','Hände / Finger off','Face Tattoo'],
  Produktdarstellung:['Stoff wirkt dünn / billig','Artwork/Logo nicht 1:1 vom echten Design','Print falsch platziert / verzerrt','Farbe stimmt nicht','Cut / Fit falsch dargestellt','Styling-Kombi falsch (z. B. Boots zu Jogger)','Produkt-Feature fehlt (z. B. Glow in the Dark)','Produkt nicht erkennbar','Props nicht edel (Helm / Fahrzeug)']};
 
+var SERVER_TAGS={};
 var st={reviewer:localStorage.getItem('scr-reviewer')||'Max',role:'Decision',
  queue:[],idx:0,total:0,session:'',t0:0,pend:null,busy:false,hist:[]};
 
@@ -153,7 +154,7 @@ function api(path,opts){opts=opts||{};
 function cleanKey(v){return String(v||'').replace(/[^A-Za-z0-9_-]/g,'')}
 function initKey(){
  var q=new URLSearchParams(location.search);
- if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY);history.replaceState(null,'',location.pathname)}
+ if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
  else KEY=cleanKey(localStorage.getItem('scr-key'));
  if(KEY)localStorage.setItem('scr-key',KEY);
  if(!KEY){askKey();return false}
@@ -178,6 +179,7 @@ function pill(){
 // ---- Queue ----
 function load(){
  bar(0,'REVIEW','');KEYS.textContent='';
+ api('/failtags').then(function(d){SERVER_TAGS=d.tags||{}}).catch(function(){});
  V.innerHTML='<div class="loadbox">LADE QUEUE FÜR '+esc(st.reviewer.toUpperCase())+' …</div>';
  api('/queue?reviewer='+encodeURIComponent(st.reviewer)).then(function(d){
   st.queue=d.assets.filter(function(a){return a.image});
@@ -315,7 +317,9 @@ function sheet(){
  stage.appendChild(s);
  var fc=s.querySelector('#fc'),sv=s.querySelector('#sv');
  function chips(){
-  var all=FAIL[st.pend.ax].concat(customTags(st.pend.ax));
+  var all=[];
+  FAIL[st.pend.ax].concat(SERVER_TAGS[st.pend.ax]||[]).concat(customTags(st.pend.ax))
+   .forEach(function(t){if(t&&all.indexOf(t)<0)all.push(t)});
   fc.innerHTML=all.map(function(t){
    return '<button data-t="'+esc(t)+'"'+(st.pend.tags.indexOf(t)>=0?' class="on"':'')+'>'+esc(t)+'</button>'}).join('');
   fc.querySelectorAll('button').forEach(function(b){b.onclick=function(){

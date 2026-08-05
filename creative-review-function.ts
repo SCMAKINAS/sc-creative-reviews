@@ -13,6 +13,7 @@
 //   POST /review   ein Einzelbild-Review
 //   POST /unreview Review zuruecknehmen {reviewId, recordId?}
 //   GET  /rules    Creative-Regeln (Fest + Vorschlag)
+//   GET  /failtags alle bekannten Fail-Tag-Optionen pro Achse
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet
 
@@ -480,6 +481,35 @@ async function review(req: Request) {
   return json({ ok: true, reviewId: rec[0].id, ...(ruleId ? { ruleProposal: ruleId } : {}) });
 }
 
+// ---------- Fail-Tags ----------
+// Liefert alle bekannten Fail-Tag-Optionen pro Achse, damit selbst angelegte
+// Tags (z. B. "Koerperhaltung") auf allen Geraeten als Chips erscheinen.
+async function failtags() {
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE}/tables`, {
+      headers: { Authorization: `Bearer ${AIRTABLE_PAT}` },
+    });
+    if (r.ok) {
+      const b = await r.json();
+      const tbl = (b.tables ?? []).find((t: any) => t.id === T.reviews);
+      const out: Record<string, string[]> = {};
+      for (const [axis, fname] of Object.entries(AXIS)) {
+        const f = tbl?.fields?.find((x: any) => x.name === fname);
+        out[axis] = (f?.options?.choices ?? []).map((c: any) => c.name);
+      }
+      return json({ source: "meta", tags: out });
+    }
+  } catch (_e) { /* Fallback unten */ }
+  const revs = await atAll(T.reviews, "fields[]=Fail Ausdruck&fields[]=Fail Model&fields[]=Fail Produktdarstellung");
+  const out: Record<string, string[]> = { Ausdruck: [], Model: [], Produktdarstellung: [] };
+  for (const r of revs) {
+    for (const [axis, fname] of Object.entries(AXIS)) {
+      for (const t of r.fields[fname] ?? []) if (!out[axis].includes(t)) out[axis].push(t);
+    }
+  }
+  return json({ source: "reviews", tags: out });
+}
+
 // ---------- Baseline ----------
 // Friert den aktuellen Board-Stand ein: alle Bilder in der Spalte, die noch
 // nicht als Asset importiert sind, werden kuenftig vom Sync uebersprungen.
@@ -640,6 +670,7 @@ Deno.serve(async (req) => {
     if (route === "review" && req.method === "POST") return await review(req);
     if (route === "unreview" && req.method === "POST") return await unreview(req);
     if (route === "rules") return await rules();
+    if (route === "failtags") return await failtags();
     if (route === "baseline" && req.method === "POST") return await baseline();
     if (route === "rollup") return await rollup();
     return json({ error: "unknown route", route }, 404);
