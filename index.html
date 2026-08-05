@@ -148,17 +148,21 @@ function api(path,opts){opts=opts||{};
   return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
 
 // ---- Key ----
+// Slack & Co. haengen beim Kopieren gern Formatierung an (**, Klammern,
+// Leerzeichen) — deshalb wird jeder Key auf [A-Za-z0-9_-] reduziert.
+function cleanKey(v){return String(v||'').replace(/[^A-Za-z0-9_-]/g,'')}
 function initKey(){
  var q=new URLSearchParams(location.search);
- if(q.get('key')){KEY=q.get('key');localStorage.setItem('scr-key',KEY);history.replaceState(null,'',location.pathname)}
- else KEY=localStorage.getItem('scr-key');
+ if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY);history.replaceState(null,'',location.pathname)}
+ else KEY=cleanKey(localStorage.getItem('scr-key'));
+ if(KEY)localStorage.setItem('scr-key',KEY);
  if(!KEY){askKey();return false}
  return true}
 function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
  V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
  '<div class="hint">Einmal eingeben — wird auf diesem Gerät gespeichert.</div>'+
  '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
- $('kg').onclick=function(){var v=$('ki').value.trim();if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
+ $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
  $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
 
 // ---- Reviewer-Pill ----
@@ -180,8 +184,9 @@ function load(){
   st.idx=0;st.total=st.queue.length;st.hist=[];st.pend=null;
   st.session=st.reviewer+'-'+new Date().toISOString().slice(0,16);
   card()}).catch(function(e){
-  if(String(e.message).indexOf('unauthorized')>=0){localStorage.removeItem('scr-key');askKey()}
-  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(e.message)+'</div>'})}
+  var m=String(e.message);
+  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
+  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
 
 function cur(){return st.queue[st.idx]}
 
