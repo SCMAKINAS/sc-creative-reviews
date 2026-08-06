@@ -91,7 +91,9 @@ Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 
 **Review-Key rotieren:** In Supabase → Edge Functions → Secrets → `REVIEW_KEY` neu setzen. Nur ASCII-Zeichen (Umlaute funktionieren in HTTP-Headern nicht). Danach allen Reviewern die neue URL mit `?key=` schicken.
 
-**Figma-Token rotieren:** Liegt in der Supabase-Tabelle `app_config` (Key `figma_token`) und hat Vorrang vor den Secrets `FIGMA_TOKEN_II`/`FIGMA_TOKEN`. Rotation per SQL: `update app_config set value='figd_…', updated_at=now() where key='figma_token';` — kein Redeploy nötig (Cache greift pro Instanz, neue Instanzen lesen sofort den neuen Wert).
+**Figma-Token rotieren:** Liegt in der Supabase-Tabelle `app_config` (Key `figma_token`) und hat Vorrang vor den Secrets `FIGMA_TOKEN_II`/`FIGMA_TOKEN`. Rotation per SQL: `update app_config set value='figd_…', updated_at=now() where key='figma_token';` — kein Redeploy nötig (Token-Cache hat 5 Min TTL).
+
+**Handy-Push bei neuen Batches:** Nach jedem Sync mit neuen Assets schickt die Function eine Push-Notification über ntfy.sh („Shooting-Assets: 161 neu im Review", Tap öffnet die App). Reviewer abonnieren einmalig das geheime Topic in der ntfy-App (Topic-Name steht in `app_config`, Key `ntfy_topic` — per SQL rotierbar, falls er leakt). Der Link in der Notification enthält bewusst KEINEN Review-Key.
 
 ## Bekannte Stolperfallen
 
