@@ -48,6 +48,12 @@ const FORMATS: Record<string, Fmt> = {
     axes: { Witz: "Fail Witz", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
     prefix: "MEM",
   },
+  branding: {
+    base: "appPaEX5g0qOOz5L4", assets: "tblN6h6bLwkaGWsUo", reviews: "tblXNaFF8fy5xdugq",
+    column: ["branding shots", "branding"],
+    axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
+    prefix: "BRD",
+  },
 };
 function fmtOf(req: Request): (Fmt & { key: string }) | null {
   const k = new URL(req.url).searchParams.get("format") ?? "statics";

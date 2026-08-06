@@ -110,7 +110,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
         <button data-r="Flo" data-role="Shadow">FLO<small>SHADOW</small></button>
       </div>
     </div>
-    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">STATICS</button><button data-f="memes">MEMES</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
+    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">SHOOTING</button><button data-f="memes">MEMES</button><button data-f="branding">BRANDING</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
     <div id="view"></div>
   </div>
   <div class="keys" id="keys"></div>
@@ -134,14 +134,18 @@ var KEY=null;
 // Visual Direction Sheet V2.1 (DM Jonas/Max, Juli 2026).
 // Formate: Achsen + Standard-Tags. Muss zum Backend (FORMATS) passen.
 var FMT={
- statics:{label:'STATICS',axes:['Ausdruck','Model','Produktdarstellung'],fail:{
+ statics:{label:'SHOOTING',axes:['Ausdruck','Model','Produktdarstellung'],fail:{
   Ausdruck:['Wirkt fake / gestellt','Unrealistisch / übertrieben','Langweilig — kein Scroll-Stop','Zu mainstream / generisch','Zu wenig Power / Aggressivität','Hintergrund zu dreckig / Ghetto','Hintergrund zu hell — dunkler nehmen','Licht flach — mehr Tiefe / Dynamic Range'],
   Model:['Nicht aus der Kartei / nie confirmt','Nicht die Model-Richtung','Model wiederholt sich zu oft','Wirkt gecastet / Stock','Gesicht verzerrt / AI-Fehler','Hände / Finger off','Face Tattoo'],
   Produktdarstellung:['Stoff wirkt dünn / billig','Artwork/Logo nicht 1:1 vom echten Design','Print falsch platziert / verzerrt','Farbe stimmt nicht','Cut / Fit falsch dargestellt','Styling-Kombi falsch (z. B. Boots zu Jogger)','Produkt-Feature fehlt (z. B. Glow in the Dark)','Produkt nicht erkennbar','Props nicht edel (Helm / Fahrzeug)']}},
  memes:{label:'MEMES',axes:['Witz','Brand','Umsetzung'],fail:{
   Witz:['Nicht lustig — kein Hook','Zu generisch / 1000x gesehen','Text drin — soll ohne Text funktionieren','Referenz zu nischig','Relatability fehlt'],
   Brand:['Kein Stay-Cold-Bezug','Logo fehlt / nicht sichtbar','Passt nicht zur Szene','Zu brav — kein Edge'],
-  Umsetzung:['Bildqualität schlecht','AI-Fehler sichtbar','Format falsch (Crop/Ratio)','Referenz veraltet']}}};
+  Umsetzung:['Bildqualität schlecht','AI-Fehler sichtbar','Format falsch (Crop/Ratio)','Referenz veraltet']}},
+ branding:{label:'BRANDING',axes:['Vibe','Brand','Umsetzung'],fail:{
+  Vibe:['Kein Mood','Zu soft','Zu gestellt','Stock-Look','Falsche Energie'],
+  Brand:['Nicht Stay Cold','Logo fehlt/unkenntlich','Zu clean','Zu Mainstream','Farbwelt off'],
+  Umsetzung:['AI-Artefakte','Licht off','Unscharf/Matschig','Crop ungünstig','Komposition wirr']}}};
 function cfg(){return FMT[st.format]||FMT.statics}
 
 var SERVER_TAGS={};

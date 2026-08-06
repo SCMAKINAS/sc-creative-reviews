@@ -33,12 +33,13 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 
 ## Formate
 
-Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), eine eigene Airtable-Base und eigene Review-Achsen/Tags. Umschalter in der App (STATICS | MEMES). API-Aufrufe: `?format=statics|memes` (Default statics).
+Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), eine eigene Airtable-Base und eigene Review-Achsen/Tags. Umschalter in der App (SHOOTING | MEMES | BRANDING). API-Aufrufe: `?format=statics|memes|branding` (Default statics).
 
 | Format | Board-Überschrift | Airtable-Base | Achsen | Prefix |
 |---|---|---|---|---|
 | statics | „AI Shooting Assets for Approval" | `appKktIMvTU1AqOEN` | Ausdruck / Model / Produktdarstellung | AST |
 | memes | „Memes" (unter „Social Media Content for Approval") | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
+| branding | „Branding Shots" (unter „Social Media Content for Approval") | `appPaEX5g0qOOz5L4` | Vibe / Brand / Umsetzung | BRD |
 
 Die Bereichs-Erkennung ist geometrisch: Jedes Bild gehört zur **nächstgelegenen Überschrift seiner Zeile** (Bilder dürfen auch links der Überschrift beginnen — Model-Kartei neben den Statics, Social-Spalten nebeneinander); untere Grenze ist die nächste Überschriften-Zeile darunter. Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift. Social-Zeile aktuell: „Memes" · „Band photos" · „Branding Shots".
 
