@@ -7,7 +7,7 @@
 // ROUTEN
 //   POST /sync     Board ziehen, nach Board-Struktur (Sections/Frames/Groups) gruppieren,
 //                  lose Bilder raeumlich clustern, Assets anlegen (?limit=N, ?gap=N)
-//   GET  /probe    Diagnose: Figma-Fetch messen (?depth=N)
+//   GET  /probe    Diagnose: Figma-Fetch des Review-Bereichs messen
 //   GET  /layout   Diagnose: Bounding-Boxes der Bilder in der Spalte
 //   GET  /vocab    Models / Expressions / Depictions
 //   POST /vocab    neuen Vokabular-Eintrag anlegen  {kind,name,category?}
@@ -21,6 +21,11 @@
 //   GET  /rollup   Trefferquoten pro Entitaet
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
+// Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
+// oben AI-Shootings (statics), unten Memes. Nur DIESER Teilbaum wird geladen
+// (nodes-API) statt des ganzen Boards -- Groessenordnungen billiger im
+// Figma-Rate-Budget als der fruehere Full-File-Fetch.
+const REVIEW_ROOT = "3156:787";
 
 // Ein Review-Format = eigener Board-Bereich + eigene Airtable-Base + eigene Achsen.
 // Neue Formate: Bereich in Figma anlegen (Text-Ueberschrift!), Base klonen, hier eintragen.
@@ -60,8 +65,18 @@ const T = {
   regeln: "tblZIQ6vTEQGwD2fn",
 };
 
-// Neuer Token nach Rate-Limit-Sperre des ersten; II hat Vorrang.
-const FIGMA_TOKEN = Deno.env.get("FIGMA_TOKEN_II") ?? Deno.env.get("FIGMA_TOKEN") ?? "";
+// Figma-Token: app_config-Tabelle (per SQL rotierbar) hat Vorrang vor den
+// Env-Secrets FIGMA_TOKEN_II / FIGMA_TOKEN. Cache pro Instanz.
+let FIGMA_TOKEN_CACHE: string | null = null;
+async function figmaToken(): Promise<string> {
+  if (FIGMA_TOKEN_CACHE !== null) return FIGMA_TOKEN_CACHE;
+  try {
+    const rows = await pg("app_config?key=eq.figma_token&select=value");
+    if (rows?.[0]?.value) { FIGMA_TOKEN_CACHE = rows[0].value; return FIGMA_TOKEN_CACHE; }
+  } catch (_e) { /* Fallback auf Env */ }
+  FIGMA_TOKEN_CACHE = Deno.env.get("FIGMA_TOKEN_II") ?? Deno.env.get("FIGMA_TOKEN") ?? "";
+  return FIGMA_TOKEN_CACHE;
+}
 const AIRTABLE_PAT = Deno.env.get("AIRTABLE_PAT") ?? "";
 const REVIEW_KEY = Deno.env.get("REVIEW_KEY") ?? "";
 
@@ -141,7 +156,9 @@ async function baselineIds(): Promise<Set<string>> {
 
 // ---------- Figma ----------
 async function figma(path: string): Promise<any> {
-  const r = await fetch(`https://api.figma.com/v1/${path}`, { headers: { "X-Figma-Token": FIGMA_TOKEN } });
+  const tok = await figmaToken();
+  if (!tok) throw new Error("Kein Figma-Token konfiguriert (app_config.figma_token oder Secret).");
+  const r = await fetch(`https://api.figma.com/v1/${path}`, { headers: { "X-Figma-Token": tok } });
   const b = await r.json();
   if (!r.ok) throw new Error(`Figma ${r.status}: ${JSON.stringify(b)}`);
   return b;
@@ -151,7 +168,7 @@ type N = { id: string; x: number; y: number; w: number; h: number; name: string;
 
 function walk(node: any, texts: any[], imgs: N[], section: string | null = null) {
   const bb = node?.absoluteBoundingBox;
-  if (node?.type === "TEXT" && bb) texts.push({ t: String(node.characters ?? ""), x: bb.x, y: bb.y });
+  if (node?.type === "TEXT" && bb) texts.push({ t: String(node.characters ?? ""), x: bb.x, y: bb.y, h: bb.height });
   const isImg = node?.type === "IMAGE" ||
     (Array.isArray(node?.fills) && node.fills.some((f: any) => f?.type === "IMAGE" && f?.visible !== false));
   if (isImg && bb && node.visible !== false) {
@@ -198,47 +215,50 @@ function findHead(texts: any[], f: Fmt) {
     return f.column.some((c) => s.includes(c));
   });
 }
+async function reviewRoot(): Promise<any | null> {
+  const resp = await figma(`files/${FIGMA_FILE}/nodes?ids=${encodeURIComponent(REVIEW_ROOT)}`);
+  return resp?.nodes?.[REVIEW_ROOT]?.document ?? null;
+}
 async function boardColumn(f: Fmt) {
-  const file = await figma(`files/${FIGMA_FILE}`);
+  const doc = await reviewRoot();
+  if (!doc) return { error: json({ error: `Review-Bereich ${REVIEW_ROOT} nicht im Board gefunden.` }, 404) };
   const texts: any[] = [], imgs: N[] = [];
-  walk(file.document, texts, imgs);
-  const head = findHead(texts, f);
+  for (const c of doc.children ?? []) walk(c, texts, imgs, null);
+  // Nur grosse Texte sind Bereichs-Ueberschriften; kleine Labels zwischen Bildern ignorieren.
+  const heads = texts.filter((t) => (t.h ?? 0) >= 500);
+  const head = findHead(heads, f);
   if (!head) return { error: json({ error: `Bereich "${f.column[0]}" nicht im Board gefunden.` }, 404) };
-  const rights = texts.filter((t) => t.x > head.x + 20).map((t) => t.x);
-  const xMax = rights.length ? Math.min(...rights) - 40 : Infinity;
-  // Untere Grenze: naechste Ueberschrift eines ANDEREN Formats im selben x-Band.
-  let yMax = Infinity;
-  for (const other of Object.values(FORMATS)) {
-    if (other.column === f.column) continue;
-    const oh = findHead(texts, other);
-    if (oh && oh.y > head.y && oh.x > head.x - 120 && oh.x < xMax) yMax = Math.min(yMax, oh.y - 20);
-  }
+  // Rechte Grenze: nur Ueberschriften in derselben ZEILE zaehlen (z. B. Model-Kartei
+  // rechts daneben). Grosszuegiger Puffer, weil Kartei-Bilder links der Ueberschrift beginnen.
+  const row = heads.filter((t) => t !== head && Math.abs(t.y - head.y) < 2500 && t.x > head.x + 20).map((t) => t.x);
+  const xMax = row.length ? Math.min(...row) - 4000 : Infinity;
+  // Untere Grenze: naechste Ueberschrift UNTERHALB innerhalb des x-Bands
+  // (z. B. "Social Media Content for Approval" unter den AI-Shootings).
+  const below = heads.filter((t) => t.y > head.y + 2500 && t.x > head.x - 120 && t.x < xMax).map((t) => t.y);
+  const yMax = below.length ? Math.min(...below) - 20 : Infinity;
   const inCol = imgs.filter((n) => {
     const cx = n.x + n.w / 2;
     return cx > head.x - 120 && cx < xMax && n.y > head.y && n.y < yMax;
   });
-  if (!inCol.length) return { error: json({ error: `Keine Bilder im Bereich "${f.column[0]}" gefunden.` }, 404) };
   return { inCol, texts: texts.length, imgs: imgs.length };
 }
 
 // ---------- Diagnose ----------
 async function probe(req: Request) {
-  const url = new URL(req.url);
   const f = fmtOf(req) ?? { ...FORMATS.statics, key: "statics" };
-  const depth = url.searchParams.get("depth");
   const t0 = Date.now();
-  const file = await figma(`files/${FIGMA_FILE}${depth ? `?depth=${depth}` : ""}`);
+  const doc = await reviewRoot();
   const fetchMs = Date.now() - t0;
+  if (!doc) return json({ error: `Review-Bereich ${REVIEW_ROOT} nicht gefunden.` }, 404);
   const texts: any[] = [], imgs: N[] = [];
-  walk(file.document, texts, imgs);
+  for (const c of doc.children ?? []) walk(c, texts, imgs, null);
   let nodes = 0;
   const count = (n: any) => { nodes++; for (const c of n?.children ?? []) count(c); };
-  count(file.document);
+  count(doc);
   const head = findHead(texts, f);
   return json({
-    depth: depth ?? "full",
     fetchMs,
-    approxKB: Math.round(JSON.stringify(file).length / 1024),
+    approxKB: Math.round(JSON.stringify(doc).length / 1024),
     nodes,
     texts: texts.length,
     images: imgs.length,
@@ -280,6 +300,7 @@ async function sync(req: Request) {
   if ("error" in col) return col.error;
   const inCol = col.inCol!;
   mark(`walked: ${col.texts} texts, ${col.imgs} images, ${inCol.length} in column`);
+  if (!inCol.length) return json({ created: 0, remaining: 0, note: "Board-Bereich ist leer — nichts zu importieren." });
 
   // 1. Wahl: Board-Struktur (benannte Sections/Frames/Groups) = Szene.
   // Fallback fuer lose Bilder: raeumliches Clustering.
@@ -714,8 +735,8 @@ Deno.serve(async (req) => {
   if (!REVIEW_KEY || req.headers.get("x-review-key") !== REVIEW_KEY) {
     return json({ error: "unauthorized" }, 401);
   }
-  if (!FIGMA_TOKEN || !AIRTABLE_PAT) {
-    return json({ error: "Secrets fehlen: FIGMA_TOKEN und/oder AIRTABLE_PAT nicht gesetzt." }, 500);
+  if (!AIRTABLE_PAT) {
+    return json({ error: "Secret fehlt: AIRTABLE_PAT nicht gesetzt." }, 500);
   }
   try {
     if (route === "sync" && req.method === "POST") return await sync(req);
