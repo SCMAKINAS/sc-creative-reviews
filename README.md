@@ -40,9 +40,9 @@ Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), 
 | statics | „AI Shooting Assets for Approval" | `appKktIMvTU1AqOEN` | Ausdruck / Model / Produktdarstellung | AST |
 | memes | „Memes" (unter „Social Media Content for Approval") | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
 
-Die Bereichs-Erkennung ist geometrisch: Überschrift gefunden → rechte Grenze = nächste Überschrift **in derselben Zeile** (z. B. die Model-Kartei rechts neben den Statics), untere Grenze = nächste Überschrift **darunter** (z. B. „Social Media Content" unter den AI-Shootings). Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift.
+Die Bereichs-Erkennung ist geometrisch: Jedes Bild gehört zur **nächstgelegenen Überschrift seiner Zeile** (Bilder dürfen auch links der Überschrift beginnen — Model-Kartei neben den Statics, Social-Spalten nebeneinander); untere Grenze ist die nächste Überschriften-Zeile darunter. Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift. Social-Zeile aktuell: „Memes" · „Band photos" · „Branding Shots".
 
-**Neues Format hinzufügen:** Bereich mit großer Überschrift in Figma anlegen (im „Creative Review"-Node) → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern. (Für „Band photos" ist die Board-Überschrift schon da.)
+**Neues Format hinzufügen:** Bereich mit großer Überschrift in Figma anlegen (im „Creative Review"-Node) → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern. (Für „Band photos" und „Branding Shots" sind die Board-Überschriften schon da.)
 
 ## Rollen & Reviewer
 
