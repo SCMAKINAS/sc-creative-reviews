@@ -1,5 +1,8 @@
-// Stay Cold · Creative Review v3 — Figma Board -> Airtable
+// Stay Cold · Creative Review — Figma Board -> Airtable, multi-format
 // Auth: eigener Header x-review-key (deshalb verify_jwt=false).
+//
+// Formate (?format=statics|memes, Default statics): eigener Board-Bereich,
+// eigene Airtable-Base, eigene Review-Achsen. Siehe FORMATS unten.
 //
 // ROUTEN
 //   POST /sync     Board ziehen, nach Board-Struktur (Sections/Frames/Groups) gruppieren,
@@ -18,14 +21,42 @@
 //   GET  /rollup   Trefferquoten pro Entitaet
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
-const COLUMN = "scenes for approval";
-const BASE = "appKktIMvTU1AqOEN";
+
+// Ein Review-Format = eigener Board-Bereich + eigene Airtable-Base + eigene Achsen.
+// Neue Formate: Bereich in Figma anlegen (Text-Ueberschrift!), Base klonen, hier eintragen.
+type Fmt = {
+  base: string; assets: string; reviews: string;
+  column: string[];             // Kandidaten fuer die Bereichs-Ueberschrift (lowercase-Match)
+  axes: Record<string, string>; // Achse -> Fail-Feld
+  prefix: string;               // Asset-ID-Praefix
+};
+const FORMATS: Record<string, Fmt> = {
+  statics: {
+    base: "appKktIMvTU1AqOEN", assets: "tbl2rpHgH2D0hebQ4", reviews: "tbltxjO4jLxWbqTRy",
+    column: ["scenes for approval"],
+    axes: { Ausdruck: "Fail Ausdruck", Model: "Fail Model", Produktdarstellung: "Fail Produktdarstellung" },
+    prefix: "AST",
+  },
+  memes: {
+    base: "appW9B8mQaT7krmg2", assets: "tblQIYC1QRsU9Xp1r", reviews: "tblHCqfdQ6OzHHCdi",
+    column: ["social media assets", "memes"],
+    axes: { Witz: "Fail Witz", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
+    prefix: "MEM",
+  },
+};
+function fmtOf(req: Request): (Fmt & { key: string }) | null {
+  const k = new URL(req.url).searchParams.get("format") ?? "statics";
+  return FORMATS[k] ? { key: k, ...FORMATS[k] } : null;
+}
+
+// Vokabular, Regeln und Rollup leben weiterhin in der Statics-Base.
+const BASE = FORMATS.statics.base;
 const T = {
   models: "tblRUZ99u9ApeOdMu",
   expressions: "tbl1RQkCERHpz8Nug",
   depictions: "tbly4pX6YMtAfHYyz",
-  assets: "tbl2rpHgH2D0hebQ4",
-  reviews: "tbltxjO4jLxWbqTRy",
+  assets: FORMATS.statics.assets,
+  reviews: FORMATS.statics.reviews,
   regeln: "tblZIQ6vTEQGwD2fn",
 };
 
@@ -43,8 +74,8 @@ const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "content-type": "application/json" } });
 
 // ---------- Airtable ----------
-async function at(path: string, init: RequestInit = {}): Promise<any> {
-  const r = await fetch(`https://api.airtable.com/v0/${BASE}/${path}`, {
+async function at(base: string, path: string, init: RequestInit = {}): Promise<any> {
+  const r = await fetch(`https://api.airtable.com/v0/${base}/${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${AIRTABLE_PAT}`, "content-type": "application/json", ...(init.headers ?? {}) },
   });
@@ -52,22 +83,22 @@ async function at(path: string, init: RequestInit = {}): Promise<any> {
   if (!r.ok) throw new Error(`Airtable ${r.status}: ${JSON.stringify(b)}`);
   return b;
 }
-async function atAll(table: string, params = ""): Promise<any[]> {
+async function atAll(base: string, table: string, params = ""): Promise<any[]> {
   const out: any[] = [];
   let offset = "";
   do {
     const q = new URLSearchParams(params);
     if (offset) q.set("offset", offset);
-    const p = await at(`${table}?${q}`);
+    const p = await at(base, `${table}?${q}`);
     out.push(...p.records);
     offset = p.offset ?? "";
   } while (offset);
   return out;
 }
-async function atCreate(table: string, rows: any[]): Promise<any[]> {
+async function atCreate(base: string, table: string, rows: any[]): Promise<any[]> {
   const made: any[] = [];
   for (let i = 0; i < rows.length; i += 10) {
-    const r = await at(table, {
+    const r = await at(base, table, {
       method: "POST",
       body: JSON.stringify({ records: rows.slice(i, i + 10), typecast: true }),
     });
@@ -75,10 +106,10 @@ async function atCreate(table: string, rows: any[]): Promise<any[]> {
   }
   return made;
 }
-async function atPatch(table: string, rows: any[]): Promise<number> {
+async function atPatch(base: string, table: string, rows: any[]): Promise<number> {
   let n = 0;
   for (let i = 0; i < rows.length; i += 10) {
-    const r = await at(table, {
+    const r = await at(base, table, {
       method: "PATCH",
       body: JSON.stringify({ records: rows.slice(i, i + 10), typecast: true }),
     });
@@ -158,26 +189,42 @@ function cluster(nodes: N[], gap: number): N[][] {
   });
 }
 
-// Gemeinsame Vorstufe: Board holen, Spalte finden, Bilder filtern.
-async function boardColumn() {
+// Gemeinsame Vorstufe: Board holen, Bereich des Formats finden, Bilder filtern.
+// Bereiche liegen untereinander in derselben Spalte — jeder Bereich endet an
+// der Ueberschrift des naechsten bekannten Formats (y-Grenze).
+function findHead(texts: any[], f: Fmt) {
+  return texts.find((t) => {
+    const s = String(t.t).trim().toLowerCase();
+    return f.column.some((c) => s.includes(c));
+  });
+}
+async function boardColumn(f: Fmt) {
   const file = await figma(`files/${FIGMA_FILE}`);
   const texts: any[] = [], imgs: N[] = [];
   walk(file.document, texts, imgs);
-  const head = texts.find((t) => t.t.trim().toLowerCase().includes(COLUMN));
-  if (!head) return { error: json({ error: `Spalte "${COLUMN}" nicht im Board gefunden.` }, 404) };
+  const head = findHead(texts, f);
+  if (!head) return { error: json({ error: `Bereich "${f.column[0]}" nicht im Board gefunden.` }, 404) };
   const rights = texts.filter((t) => t.x > head.x + 20).map((t) => t.x);
   const xMax = rights.length ? Math.min(...rights) - 40 : Infinity;
+  // Untere Grenze: naechste Ueberschrift eines ANDEREN Formats im selben x-Band.
+  let yMax = Infinity;
+  for (const other of Object.values(FORMATS)) {
+    if (other.column === f.column) continue;
+    const oh = findHead(texts, other);
+    if (oh && oh.y > head.y && oh.x > head.x - 120 && oh.x < xMax) yMax = Math.min(yMax, oh.y - 20);
+  }
   const inCol = imgs.filter((n) => {
     const cx = n.x + n.w / 2;
-    return cx > head.x - 120 && cx < xMax && n.y > head.y;
+    return cx > head.x - 120 && cx < xMax && n.y > head.y && n.y < yMax;
   });
-  if (!inCol.length) return { error: json({ error: "Keine Bilder in der Spalte gefunden." }, 404) };
+  if (!inCol.length) return { error: json({ error: `Keine Bilder im Bereich "${f.column[0]}" gefunden.` }, 404) };
   return { inCol, texts: texts.length, imgs: imgs.length };
 }
 
 // ---------- Diagnose ----------
 async function probe(req: Request) {
   const url = new URL(req.url);
+  const f = fmtOf(req) ?? { ...FORMATS.statics, key: "statics" };
   const depth = url.searchParams.get("depth");
   const t0 = Date.now();
   const file = await figma(`files/${FIGMA_FILE}${depth ? `?depth=${depth}` : ""}`);
@@ -187,7 +234,7 @@ async function probe(req: Request) {
   let nodes = 0;
   const count = (n: any) => { nodes++; for (const c of n?.children ?? []) count(c); };
   count(file.document);
-  const head = texts.find((t) => t.t.trim().toLowerCase().includes(COLUMN));
+  const head = findHead(texts, f);
   return json({
     depth: depth ?? "full",
     fetchMs,
@@ -207,8 +254,10 @@ async function render(req: Request) {
   return json({ images: r.images ?? {} });
 }
 
-async function layout() {
-  const col = await boardColumn();
+async function layout(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const col = await boardColumn(f);
   if ("error" in col) return col.error;
   const rows = col.inCol!
     .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x))
@@ -223,8 +272,11 @@ async function sync(req: Request) {
   const limit = Math.max(1, Math.min(200, parseInt(url.searchParams.get("limit") ?? "40", 10) || 40));
   const gapParam = parseInt(url.searchParams.get("gap") ?? "", 10);
 
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  mark(`format: ${f.key}`);
   mark("figma file fetch start");
-  const col = await boardColumn();
+  const col = await boardColumn(f);
   if ("error" in col) return col.error;
   const inCol = col.inCol!;
   mark(`walked: ${col.texts} texts, ${col.imgs} images, ${inCol.length} in column`);
@@ -250,7 +302,7 @@ async function sync(req: Request) {
     Math.min(...a.nodes.map((n) => n.y)) - Math.min(...b.nodes.map((n) => n.y)));
   mark(`grouped: ${inCol.length} images -> ${named.length} sections + ${spatial.length} spatial (gap ${Math.round(gap)})`);
 
-  const existing = await atAll(T.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
+  const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
   mark(`airtable existing: ${existing.length} assets`);
   const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
   // Baseline: Board-Stand, der bewusst NICHT importiert wird (bereits via Slack
@@ -278,7 +330,7 @@ async function sync(req: Request) {
         rows.push({
           node: n.id,
           fields: {
-            "Asset ID": `AST-${String(++seq).padStart(4, "0")}`,
+            "Asset ID": `${f.prefix}-${String(++seq).padStart(4, "0")}`,
             "Figma Node ID": n.id,
             "Figma Link": `https://www.figma.com/board/${FIGMA_FILE}?node-id=${n.id.replace(":", "-")}`,
             Cluster: cl,
@@ -306,7 +358,7 @@ async function sync(req: Request) {
     return { fields: { ...r.fields, ...(u ? { Preview: [{ url: u }] } : {}) } };
   });
 
-  const made = await atCreate(T.assets, payload);
+  const made = await atCreate(f.base, f.assets, payload);
   mark(`airtable created: ${made.length}`);
   return json({
     created: made.length,
@@ -332,7 +384,7 @@ const ID_FIELD: Record<string, string> = {
 async function vocab() {
   const out: any = {};
   for (const k of Object.keys(KIND)) {
-    const recs = await atAll(KIND[k].t);
+    const recs = await atAll(BASE, KIND[k].t);
     out[k] = recs.map((r) => ({
       id: r.fields[ID_FIELD[k]],
       name: r.fields[KIND[k].label] ?? "",
@@ -348,7 +400,7 @@ async function addVocab(req: Request) {
   const k = KIND[b.kind];
   if (!k) return json({ error: "kind muss model|expression|depiction sein" }, 400);
   if (!b.name) return json({ error: "name fehlt" }, 400);
-  const recs = await atAll(k.t, `fields[]=${encodeURIComponent(ID_FIELD[b.kind])}`);
+  const recs = await atAll(BASE, k.t, `fields[]=${encodeURIComponent(ID_FIELD[b.kind])}`);
   const seq = recs.reduce((m, r) => {
     const n = parseInt(String(r.fields[ID_FIELD[b.kind]] ?? "").split("-")[1] ?? "0", 10);
     return Number.isFinite(n) && n > m ? n : m;
@@ -356,7 +408,7 @@ async function addVocab(req: Request) {
   const id = `${k.p}-${String(seq).padStart(2, "0")}`;
   const fields: any = { [ID_FIELD[b.kind]]: id, [k.label]: b.name, Urteil: "In Pruefung" };
   if (b.category) fields["Kategorie"] = b.category;
-  await atCreate(k.t, [{ fields }]);
+  await atCreate(BASE, k.t, [{ fields }]);
   return json({ id, name: b.name });
 }
 
@@ -364,7 +416,7 @@ async function addVocab(req: Request) {
 async function assign(req: Request) {
   const b = await req.json();
   if (!b.cluster) return json({ error: "cluster fehlt" }, 400);
-  const recs = await atAll(T.assets, "filterByFormula=" + encodeURIComponent(`{Cluster}="${b.cluster}"`));
+  const recs = await atAll(BASE, T.assets, "filterByFormula=" + encodeURIComponent(`{Cluster}="${b.cluster}"`));
   if (!recs.length) return json({ error: `Cluster ${b.cluster} hat keine Assets.` }, 404);
   const fields: any = {};
   if (b.model) fields["Model ID"] = b.model;
@@ -372,7 +424,7 @@ async function assign(req: Request) {
   if (b.depiction) fields["Depiction ID"] = b.depiction;
   if (b.produkt) fields["Produkt"] = b.produkt;
   if (b.colorway) fields["Colorway"] = b.colorway;
-  const n = await atPatch(T.assets, recs.map((r) => ({ id: r.id, fields })));
+  const n = await atPatch(BASE, T.assets, recs.map((r) => ({ id: r.id, fields })));
   return json({ cluster: b.cluster, updated: n });
 }
 
@@ -380,20 +432,22 @@ async function assign(req: Request) {
 // Mit ?reviewer=Name liefert die Queue alle Assets, die DIESE Person noch nicht
 // bewertet hat (Decision und Shadows laufen parallel auf dieselben Assets).
 // Ohne reviewer: altes Verhalten (Status Queued).
-async function queue(req?: Request) {
-  const reviewer = req ? new URL(req.url).searchParams.get("reviewer") : null;
+async function queue(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const reviewer = new URL(req.url).searchParams.get("reviewer");
   let recs;
   if (reviewer) {
-    const all = await atAll(T.assets, "sort[0][field]=Asset ID&sort[0][direction]=asc");
+    const all = await atAll(f.base, f.assets, "sort[0][field]=Asset ID&sort[0][direction]=asc");
     const revs = await atAll(
-      T.reviews,
+      f.base, f.reviews,
       "filterByFormula=" + encodeURIComponent(`{Reviewer}="${reviewer}"`) + "&fields[]=Asset ID",
     );
     const done = new Set(revs.map((r) => r.fields["Asset ID"]).filter(Boolean));
     recs = all.filter((r) => !done.has(r.fields["Asset ID"]));
   } else {
     recs = await atAll(
-      T.assets,
+      f.base, f.assets,
       "filterByFormula=" + encodeURIComponent(`{Status}="Queued"`) +
         "&sort[0][field]=Asset ID&sort[0][direction]=asc",
     );
@@ -419,13 +473,9 @@ async function queue(req?: Request) {
 }
 
 // ---------- Review ----------
-const AXIS: Record<string, string> = {
-  Ausdruck: "Fail Ausdruck",
-  Model: "Fail Model",
-  Produktdarstellung: "Fail Produktdarstellung",
-};
-
 async function review(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
   const b = await req.json();
   for (const k of ["recordId", "assetId", "reviewer", "role", "verdict"]) {
     if (!b[k]) return json({ error: `${k} fehlt` }, 400);
@@ -437,21 +487,21 @@ async function review(req: Request) {
     Reviewer: b.reviewer,
     Rolle: b.role,
     Gesamt: passt ? "Passt" : "Abweichung",
-    Ausdruck: passt ? "Passt" : b.axis === "Ausdruck" ? "Off" : "Passt",
-    Model: passt ? "Passt" : b.axis === "Model" ? "Off" : "Passt",
-    Produktdarstellung: passt ? "Passt" : b.axis === "Produktdarstellung" ? "Off" : "Passt",
     Kommentar: b.comment ?? "",
     Sekunden: b.seconds ?? null,
     Session: b.session ?? "",
     "Reviewed at": new Date().toISOString(),
   };
-  if (!passt && b.axis && AXIS[b.axis]) fields[AXIS[b.axis]] = b.tags ?? [];
+  for (const [axis, failField] of Object.entries(f.axes)) {
+    fields[axis] = passt ? "Passt" : b.axis === axis ? "Off" : "Passt";
+    if (!passt && b.axis === axis) fields[failField] = b.tags ?? [];
+  }
 
-  const rec = await atCreate(T.reviews, [{ fields }]);
+  const rec = await atCreate(f.base, f.reviews, [{ fields }]);
 
   // Nur Decision schreibt den Asset-Status fort. Shadow aendert nichts.
   if (b.role === "Decision") {
-    await atPatch(T.assets, [{ id: b.recordId, fields: { Status: passt ? "Passt" : "Abweichung" } }]);
+    await atPatch(f.base, f.assets, [{ id: b.recordId, fields: { Status: passt ? "Passt" : "Abweichung" } }]);
   }
 
   // Positiver Decision-Kommentar (Max) => automatisch als Regel-Vorschlag
@@ -459,18 +509,18 @@ async function review(req: Request) {
   let ruleId: string | null = null;
   if (b.role === "Decision" && passt && (b.comment ?? "").trim().length > 3) {
     try {
-      const regeln = await atAll(T.regeln, "fields[]=Regel ID");
+      const regeln = await atAll(BASE, T.regeln, "fields[]=Regel ID");
       const seq = regeln.reduce((m, r) => {
         const n = parseInt(String(r.fields["Regel ID"] ?? "").split("-")[1] ?? "0", 10);
         return Number.isFinite(n) && n > m ? n : m;
       }, 0) + 1;
       ruleId = `REG-${String(seq).padStart(2, "0")}`;
-      await atCreate(T.regeln, [{ fields: {
+      await atCreate(BASE, T.regeln, [{ fields: {
         "Regel ID": ruleId,
         Regel: String(b.comment).trim(),
         Achse: "Allgemein",
         Status: "Vorschlag",
-        Quelle: `Review ${b.assetId} · ${b.reviewer}`,
+        Quelle: `Review ${b.assetId} · ${b.reviewer} (${f.key})`,
         Erstellt: new Date().toISOString(),
       } }]);
     } catch (e) {
@@ -484,26 +534,30 @@ async function review(req: Request) {
 // ---------- Fail-Tags ----------
 // Liefert alle bekannten Fail-Tag-Optionen pro Achse, damit selbst angelegte
 // Tags (z. B. "Koerperhaltung") auf allen Geraeten als Chips erscheinen.
-async function failtags() {
+async function failtags(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
   try {
-    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE}/tables`, {
+    const r = await fetch(`https://api.airtable.com/v0/meta/bases/${f.base}/tables`, {
       headers: { Authorization: `Bearer ${AIRTABLE_PAT}` },
     });
     if (r.ok) {
       const b = await r.json();
-      const tbl = (b.tables ?? []).find((t: any) => t.id === T.reviews);
+      const tbl = (b.tables ?? []).find((t: any) => t.id === f.reviews);
       const out: Record<string, string[]> = {};
-      for (const [axis, fname] of Object.entries(AXIS)) {
-        const f = tbl?.fields?.find((x: any) => x.name === fname);
-        out[axis] = (f?.options?.choices ?? []).map((c: any) => c.name);
+      for (const [axis, fname] of Object.entries(f.axes)) {
+        const fld = tbl?.fields?.find((x: any) => x.name === fname);
+        out[axis] = (fld?.options?.choices ?? []).map((c: any) => c.name);
       }
       return json({ source: "meta", tags: out });
     }
   } catch (_e) { /* Fallback unten */ }
-  const revs = await atAll(T.reviews, "fields[]=Fail Ausdruck&fields[]=Fail Model&fields[]=Fail Produktdarstellung");
-  const out: Record<string, string[]> = { Ausdruck: [], Model: [], Produktdarstellung: [] };
+  const failFields = Object.values(f.axes);
+  const revs = await atAll(f.base, f.reviews, failFields.map((x) => `fields[]=${encodeURIComponent(x)}`).join("&"));
+  const out: Record<string, string[]> = {};
+  for (const axis of Object.keys(f.axes)) out[axis] = [];
   for (const r of revs) {
-    for (const [axis, fname] of Object.entries(AXIS)) {
+    for (const [axis, fname] of Object.entries(f.axes)) {
       for (const t of r.fields[fname] ?? []) if (!out[axis].includes(t)) out[axis].push(t);
     }
   }
@@ -513,10 +567,12 @@ async function failtags() {
 // ---------- Baseline ----------
 // Friert den aktuellen Board-Stand ein: alle Bilder in der Spalte, die noch
 // nicht als Asset importiert sind, werden kuenftig vom Sync uebersprungen.
-async function baseline() {
-  const col = await boardColumn();
+async function baseline(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const col = await boardColumn(f);
   if ("error" in col) return col.error;
-  const existing = await atAll(T.assets, "fields[]=Figma Node ID");
+  const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID");
   const imported = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
   const toSkip = col.inCol!.filter((n) => !imported.has(n.id)).map((n) => ({ node_id: n.id }));
   for (let i = 0; i < toSkip.length; i += 500) {
@@ -527,7 +583,7 @@ async function baseline() {
 
 // ---------- Regeln ----------
 async function rules() {
-  const recs = await atAll(T.regeln, "sort[0][field]=Regel ID&sort[0][direction]=asc");
+  const recs = await atAll(BASE, T.regeln, "sort[0][field]=Regel ID&sort[0][direction]=asc");
   return json({
     rules: recs
       .filter((r) => r.fields["Status"] !== "Verworfen")
@@ -545,20 +601,22 @@ async function rules() {
 // Nimmt ein Review zurueck (App-Funktion "Letztes zuruecknehmen").
 // Bei Decision-Reviews wird der Asset-Status wieder auf Queued gesetzt.
 async function unreview(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
   const b = await req.json();
   if (!b.reviewId) return json({ error: "reviewId fehlt" }, 400);
-  const rec = await at(`${T.reviews}/${b.reviewId}`);
-  await at(`${T.reviews}/${b.reviewId}`, { method: "DELETE" });
+  const rec = await at(f.base, `${f.reviews}/${b.reviewId}`);
+  await at(f.base, `${f.reviews}/${b.reviewId}`, { method: "DELETE" });
   if (rec?.fields?.["Rolle"] === "Decision" && b.recordId) {
-    await atPatch(T.assets, [{ id: b.recordId, fields: { Status: "Queued" } }]);
+    await atPatch(f.base, f.assets, [{ id: b.recordId, fields: { Status: "Queued" } }]);
   }
   return json({ ok: true });
 }
 
 // ---------- Rollup ----------
 async function rollup() {
-  const revs = await atAll(T.reviews);
-  const assets = await atAll(T.assets, "fields[]=Asset ID&fields[]=Model ID&fields[]=Expression ID&fields[]=Depiction ID");
+  const revs = await atAll(BASE, T.reviews);
+  const assets = await atAll(BASE, T.assets, "fields[]=Asset ID&fields[]=Model ID&fields[]=Expression ID&fields[]=Depiction ID");
   const map = new Map<string, any>();
   assets.forEach((a) => map.set(a.fields["Asset ID"], a.fields));
 
@@ -662,7 +720,7 @@ Deno.serve(async (req) => {
   try {
     if (route === "sync" && req.method === "POST") return await sync(req);
     if (route === "probe") return await probe(req);
-    if (route === "layout") return await layout();
+    if (route === "layout") return await layout(req);
     if (route === "render") return await render(req);
     if (route === "vocab") return req.method === "POST" ? await addVocab(req) : await vocab();
     if (route === "assign" && req.method === "POST") return await assign(req);
@@ -670,8 +728,8 @@ Deno.serve(async (req) => {
     if (route === "review" && req.method === "POST") return await review(req);
     if (route === "unreview" && req.method === "POST") return await unreview(req);
     if (route === "rules") return await rules();
-    if (route === "failtags") return await failtags();
-    if (route === "baseline" && req.method === "POST") return await baseline();
+    if (route === "failtags") return await failtags(req);
+    if (route === "baseline" && req.method === "POST") return await baseline(req);
     if (route === "rollup") return await rollup();
     return json({ error: "unknown route", route }, 404);
   } catch (e) {
