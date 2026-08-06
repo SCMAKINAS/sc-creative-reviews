@@ -30,6 +30,17 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 | `creative-review-function.ts` | Quellcode der Supabase Edge Function (Referenz/Versionierung — deployt wird über Supabase, nicht von hier). Auto-Sync: pg_cron-Job `creative-review-board-mirror`, alle 2 h |
 | `README.md` | Diese Doku |
 
+## Formate
+
+Jedes Review-Format hat einen eigenen Figma-Bereich (Text-Überschrift in derselben Board-Spalte, Bereiche untereinander), eine eigene Airtable-Base und eigene Review-Achsen/Tags. Umschalter in der App (STATICS | MEMES). API-Aufrufe: `?format=statics|memes` (Default statics).
+
+| Format | Figma-Bereich | Airtable-Base | Achsen | Prefix |
+|---|---|---|---|---|
+| statics | „scenes for approval" | `appKktIMvTU1AqOEN` | Ausdruck / Model / Produktdarstellung | AST |
+| memes | „social media assets" | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
+
+**Neues Format hinzufügen:** Bereich mit Überschrift in Figma anlegen → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern → pg_cron-Job für den Auto-Sync ergänzen.
+
 ## Rollen & Reviewer
 
 | Reviewer | Rolle | Wirkung |
