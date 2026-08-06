@@ -1,30 +1,31 @@
 // Stay Cold · Creative Review — Figma Board -> Airtable, multi-format
 // Auth: eigener Header x-review-key (deshalb verify_jwt=false).
 //
-// Formate (?format=statics|memes, Default statics): eigener Board-Bereich,
+// Formate (?format=statics|memes|branding, Default statics): eigener Board-Bereich,
 // eigene Airtable-Base, eigene Review-Achsen. Siehe FORMATS unten.
 //
 // ROUTEN
-//   POST /sync     Board ziehen, nach Board-Struktur (Sections/Frames/Groups) gruppieren,
+//   POST /sync     Review-Bereich ziehen, nach Board-Struktur gruppieren,
 //                  lose Bilder raeumlich clustern, Assets anlegen (?limit=N, ?gap=N)
 //   GET  /probe    Diagnose: Figma-Fetch des Review-Bereichs messen
-//   GET  /layout   Diagnose: Bounding-Boxes der Bilder in der Spalte
+//   GET  /layout   Diagnose: Bounding-Boxes der Bilder im Bereich
+//   GET  /render   Diagnose/Notbehelf: Node-IDs rendern ohne File-Fetch (?ids=a,b,c)
 //   GET  /vocab    Models / Expressions / Depictions
 //   POST /vocab    neuen Vokabular-Eintrag anlegen  {kind,name,category?}
 //   POST /assign   Cluster zuordnen                 {cluster,model,expression,depiction}
-//   GET  /queue    offene Assets fuer die App
+//   GET  /queue    offene Assets fuer die App (?reviewer=Name fuer persoenliche Queue)
 //   POST /review   ein Einzelbild-Review
 //   POST /unreview Review zuruecknehmen {reviewId, recordId?}
 //   GET  /rules    Creative-Regeln (Fest + Vorschlag)
 //   GET  /failtags alle bekannten Fail-Tag-Optionen pro Achse
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
-//   GET  /rollup   Trefferquoten pro Entitaet
+//   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
 // Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
-// oben AI-Shootings (statics), unten Memes. Nur DIESER Teilbaum wird geladen
-// (nodes-API) statt des ganzen Boards -- Groessenordnungen billiger im
-// Figma-Rate-Budget als der fruehere Full-File-Fetch.
+// oben AI-Shootings (statics), unten Social Media (Memes, Band photos,
+// Branding Shots). Nur DIESER Teilbaum wird geladen (nodes-API) statt des
+// ganzen Boards -- Groessenordnungen billiger im Figma-Rate-Budget.
 const REVIEW_ROOT = "3156:787";
 
 // Ein Review-Format = eigener Board-Bereich + eigene Airtable-Base + eigene Achsen.
@@ -34,25 +35,26 @@ type Fmt = {
   column: string[];             // Kandidaten fuer die Bereichs-Ueberschrift (lowercase-Match)
   axes: Record<string, string>; // Achse -> Fail-Feld
   prefix: string;               // Asset-ID-Praefix
+  label: string;                // Anzeigename fuer Notifications
 };
 const FORMATS: Record<string, Fmt> = {
   statics: {
     base: "appKktIMvTU1AqOEN", assets: "tbl2rpHgH2D0hebQ4", reviews: "tbltxjO4jLxWbqTRy",
-    column: ["scenes for approval"],
+    column: ["scenes for approval", "ai shooting"],
     axes: { Ausdruck: "Fail Ausdruck", Model: "Fail Model", Produktdarstellung: "Fail Produktdarstellung" },
-    prefix: "AST",
+    prefix: "AST", label: "Shooting-Assets",
   },
   memes: {
     base: "appW9B8mQaT7krmg2", assets: "tblQIYC1QRsU9Xp1r", reviews: "tblHCqfdQ6OzHHCdi",
     column: ["social media assets", "memes"],
     axes: { Witz: "Fail Witz", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
-    prefix: "MEM",
+    prefix: "MEM", label: "Memes",
   },
   branding: {
     base: "appPaEX5g0qOOz5L4", assets: "tblN6h6bLwkaGWsUo", reviews: "tblXNaFF8fy5xdugq",
     column: ["branding shots", "branding"],
     axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
-    prefix: "BRD",
+    prefix: "BRD", label: "Branding Shots",
   },
 };
 function fmtOf(req: Request): (Fmt & { key: string }) | null {
@@ -142,7 +144,7 @@ async function atPatch(base: string, table: string, rows: any[]): Promise<number
   return n;
 }
 
-// ---------- Postgres (Baseline-Speicher via PostgREST) ----------
+// ---------- Postgres (Baseline + Config via PostgREST) ----------
 const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SB_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 async function pg(path: string, init: RequestInit = {}): Promise<any> {
@@ -161,6 +163,31 @@ async function pg(path: string, init: RequestInit = {}): Promise<any> {
 async function baselineIds(): Promise<Set<string>> {
   const rows = await pg("sync_baseline?select=node_id") ?? [];
   return new Set(rows.map((r: any) => r.node_id));
+}
+
+// ---------- Push-Notification (ntfy.sh) ----------
+// Handy-Push an alle Abonnenten des geheimen Topics (app_config.ntfy_topic,
+// per SQL rotierbar). JSON-Publish, weil Umlaute nicht in HTTP-Header duerfen.
+// Ein Notification-Fehler darf den Sync NIE brechen. Kein Review-Key im Link!
+async function notify(message: string) {
+  try {
+    const rows = await pg("app_config?key=eq.ntfy_topic&select=value");
+    const topic = rows?.[0]?.value;
+    if (!topic) return;
+    await fetch("https://ntfy.sh", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        topic,
+        title: "Creative Review",
+        message,
+        click: "https://scmakinas.github.io/sc-creative-reviews/",
+        tags: ["framed_picture"],
+      }),
+    });
+  } catch (e) {
+    console.log(`[notify] ${String(e)}`);
+  }
 }
 
 // ---------- Figma ----------
@@ -215,9 +242,10 @@ function cluster(nodes: N[], gap: number): N[][] {
   });
 }
 
-// Gemeinsame Vorstufe: Board holen, Bereich des Formats finden, Bilder filtern.
-// Bereiche liegen untereinander in derselben Spalte — jeder Bereich endet an
-// der Ueberschrift des naechsten bekannten Formats (y-Grenze).
+// Gemeinsame Vorstufe: Review-Bereich holen, Format-Teilbereich finden, Bilder filtern.
+// Board-Layout (Stand 06.08.): EINE Section "Creative Review"; oben "AI Shooting
+// Assets for Approval" (Model-Kartei ggf. rechts daneben), weit darunter "Social
+// Media Content for Approval" mit Spalten "Memes", "Band photos", "Branding Shots".
 function findHead(texts: any[], f: Fmt) {
   return texts.find((t) => {
     const s = String(t.t).trim().toLowerCase();
@@ -267,7 +295,7 @@ async function probe(req: Request) {
   let nodes = 0;
   const count = (n: any) => { nodes++; for (const c of n?.children ?? []) count(c); };
   count(doc);
-  const head = findHead(texts, f);
+  const head = findHead(texts.filter((t) => (t.h ?? 0) >= 500), f);
   return json({
     fetchMs,
     approxKB: Math.round(JSON.stringify(doc).length / 1024),
@@ -307,7 +335,7 @@ async function sync(req: Request) {
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
   mark(`format: ${f.key}`);
-  mark("figma file fetch start");
+  mark("figma fetch start");
   const col = await boardColumn(f);
   if ("error" in col) return col.error;
   const inCol = col.inCol!;
@@ -393,6 +421,8 @@ async function sync(req: Request) {
 
   const made = await atCreate(f.base, f.assets, payload);
   mark(`airtable created: ${made.length}`);
+  // Handy-Push an die Reviewer, sobald neue Assets in der Queue liegen.
+  if (made.length) await notify(`${f.label}: ${made.length} neu im Review`);
   return json({
     created: made.length,
     expected: payload.length,
@@ -631,7 +661,7 @@ async function rules() {
 }
 
 // ---------- Undo ----------
-// Nimmt ein Review zurueck (App-Funktion "Letztes zuruecknehmen").
+// Nimmt ein Review zurueck (App-Funktion "UNDO").
 // Bei Decision-Reviews wird der Asset-Status wieder auf Queued gesetzt.
 async function unreview(req: Request) {
   const f = fmtOf(req);
@@ -646,7 +676,7 @@ async function unreview(req: Request) {
   return json({ ok: true });
 }
 
-// ---------- Rollup ----------
+// ---------- Rollup (Statics: Vokabular-Mapping) ----------
 async function rollup() {
   const revs = await atAll(BASE, T.reviews);
   const assets = await atAll(BASE, T.assets, "fields[]=Asset ID&fields[]=Model ID&fields[]=Expression ID&fields[]=Depiction ID");
