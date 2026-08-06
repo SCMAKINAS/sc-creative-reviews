@@ -66,16 +66,19 @@ const T = {
 };
 
 // Figma-Token: app_config-Tabelle (per SQL rotierbar) hat Vorrang vor den
-// Env-Secrets FIGMA_TOKEN_II / FIGMA_TOKEN. Cache pro Instanz.
-let FIGMA_TOKEN_CACHE: string | null = null;
+// Env-Secrets FIGMA_TOKEN_II / FIGMA_TOKEN. Cache mit 5-Min-TTL, damit eine
+// Rotation auch warme Instanzen ohne Redeploy erreicht.
+let FIGMA_TOKEN_CACHE: { v: string; t: number } | null = null;
 async function figmaToken(): Promise<string> {
-  if (FIGMA_TOKEN_CACHE !== null) return FIGMA_TOKEN_CACHE;
+  if (FIGMA_TOKEN_CACHE && Date.now() - FIGMA_TOKEN_CACHE.t < 300_000) return FIGMA_TOKEN_CACHE.v;
+  let v = "";
   try {
     const rows = await pg("app_config?key=eq.figma_token&select=value");
-    if (rows?.[0]?.value) { FIGMA_TOKEN_CACHE = rows[0].value; return FIGMA_TOKEN_CACHE; }
+    if (rows?.[0]?.value) v = rows[0].value;
   } catch (_e) { /* Fallback auf Env */ }
-  FIGMA_TOKEN_CACHE = Deno.env.get("FIGMA_TOKEN_II") ?? Deno.env.get("FIGMA_TOKEN") ?? "";
-  return FIGMA_TOKEN_CACHE;
+  if (!v) v = Deno.env.get("FIGMA_TOKEN_II") ?? Deno.env.get("FIGMA_TOKEN") ?? "";
+  FIGMA_TOKEN_CACHE = { v, t: Date.now() };
+  return v;
 }
 const AIRTABLE_PAT = Deno.env.get("AIRTABLE_PAT") ?? "";
 const REVIEW_KEY = Deno.env.get("REVIEW_KEY") ?? "";
@@ -228,17 +231,20 @@ async function boardColumn(f: Fmt) {
   const heads = texts.filter((t) => (t.h ?? 0) >= 500);
   const head = findHead(heads, f);
   if (!head) return { error: json({ error: `Bereich "${f.column[0]}" nicht im Board gefunden.` }, 404) };
-  // Rechte Grenze: nur Ueberschriften in derselben ZEILE zaehlen (z. B. Model-Kartei
-  // rechts daneben). Grosszuegiger Puffer, weil Kartei-Bilder links der Ueberschrift beginnen.
-  const row = heads.filter((t) => t !== head && Math.abs(t.y - head.y) < 2500 && t.x > head.x + 20).map((t) => t.x);
-  const xMax = row.length ? Math.min(...row) - 4000 : Infinity;
-  // Untere Grenze: naechste Ueberschrift UNTERHALB innerhalb des x-Bands
-  // (z. B. "Social Media Content for Approval" unter den AI-Shootings).
-  const below = heads.filter((t) => t.y > head.y + 2500 && t.x > head.x - 120 && t.x < xMax).map((t) => t.y);
+  // Ueberschriften derselben ZEILE = konkurrierende Spalten (Model-Kartei neben den
+  // Statics; Memes/Band photos/Branding Shots nebeneinander). Jedes Bild gehoert zur
+  // NAECHSTGELEGENEN Zeilen-Ueberschrift — Bilder duerfen auch links davon beginnen.
+  const rowHeads = heads.filter((t) => Math.abs(t.y - head.y) < 2500);
+  // Untere Grenze: naechste Ueberschriften-Zeile unterhalb (z. B. "Social Media
+  // Content for Approval" unter den AI-Shootings).
+  const below = heads.filter((t) => t.y > head.y + 2500).map((t) => t.y);
   const yMax = below.length ? Math.min(...below) - 20 : Infinity;
   const inCol = imgs.filter((n) => {
+    if (n.y <= head.y || n.y >= yMax) return false;
     const cx = n.x + n.w / 2;
-    return cx > head.x - 120 && cx < xMax && n.y > head.y && n.y < yMax;
+    let best = rowHeads[0];
+    for (const t of rowHeads) if (Math.abs(cx - t.x) < Math.abs(cx - best.x)) best = t;
+    return best === head;
   });
   return { inCol, texts: texts.length, imgs: imgs.length };
 }
