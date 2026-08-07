@@ -155,16 +155,13 @@ function api(path,opts){opts=opts||{};
  return fetch(API+path+sep+'format=sketches',opts).then(function(r){
   return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
 
-// ---- Titel-Parsing ----
-// Primaerfeld-Formel liefert "Concept // CUT (GSM) // Sketch N".
-function parts(a){
- var seg=String(a.id||'').split('//').map(function(x){return x.trim()});
- return {concept:a.concept||seg[0]||'',cut:seg[1]||'',nr:seg[2]||''}}
-function titleOf(a){var p=parts(a);
- return (a.name||p.concept||'SKETCH')+(p.nr&&/\d/.test(p.nr)?' · '+p.nr.toUpperCase():'')}
-function subOf(a){var p=parts(a);
- var bits=[p.cut,(a.name&&p.concept)?p.concept:'',a.date||''];
- return bits.filter(Boolean).join(' · ')}
+// ---- Karten-Titel ----
+// Queue-Objekte sind Artworks: id="ART-1127", name=Beschreibung, concept=Tags.
+function titleOf(a){return a.id||'ARTWORK'}
+function subOf(a){
+ var d=(a.name||'').trim();
+ if(d.length>120)d=d.slice(0,117)+'…';
+ return [d,a.concept||''].filter(Boolean).join('  ·  ')||'Artwork zur Abstimmung'}
 
 // ---- Key ----
 // Gleicher localStorage-Key wie die Creative-Review-App (gleiche Domain):
@@ -368,10 +365,10 @@ function commit(r){
   verdict:r.v,tags:r.tags,comment:(r.comment||'').trim(),seconds:r.s,session:st.session};
  var p=api('/review',{method:'POST',body:JSON.stringify(body)}).then(function(res){
   if(res&&res.result==='Konflikt'){
-   toast('⚡ Uneinig mit '+(st.reviewer==='Vuven'?'Max':'Vuven')+' — Sketch liegt in KONFLIKTE');
+   toast('⚡ Uneinig mit '+(st.reviewer==='Vuven'?'Max':'Vuven')+' — Artwork liegt in KONFLIKTE');
    api('/conflicts').then(function(d){st.conflicts=d.conflicts||[];setBadge(st.conflicts.length)}).catch(function(){})}
-  else if(res&&res.result==='Confirmed')toast('✓ Beide einig — Variant Status: survey');
-  else if(res&&res.result==='Rejected')toast('✕ Beide einig — Variant Status: rejected');
+  else if(res&&res.result==='Confirmed')toast('✓ Beide Yes — Artwork geht weiter Richtung Kauf (Robert)');
+  else if(res&&res.result==='Rejected')toast('✕ Beide No — Artwork aussortiert');
   return res
  }).catch(function(e){
   toast('Speichern fehlgeschlagen: '+titleOf(a)+' — beim nächsten Laden wieder in der Queue');return null});
@@ -411,7 +408,7 @@ function conflictsView(){
     '<div style="flex:1;min-width:0"><div class="ct">'+esc(titleOf(c))+'</div>'+
     '<div class="msub">'+esc(subOf(c))+'</div>'+votes+'</div></div>'+
     '<input class="cin" placeholder="Klärungs-Notiz (optional — wird Regel-Vorschlag)">'+
-    '<div class="crow"><button class="cok">✓ FINAL: CONFIRM (SURVEY)</button><button class="cno">✕ FINAL: REJECT</button></div></div>'});
+    '<div class="crow"><button class="cok">✓ FINAL: YES</button><button class="cno">✕ FINAL: NO</button></div></div>'});
   h+='</div>';
   V.innerHTML=h;
   V.querySelectorAll('.conf img').forEach(function(im){im.onclick=function(){openViewer(im.dataset.full||im.src)}});
@@ -422,7 +419,7 @@ function conflictsView(){
     var note=el.querySelector('.cin').value.trim();
     el.style.opacity='.4';
     api('/resolve',{method:'POST',body:JSON.stringify({recordId:c.recordId,verdict:verdict,comment:note})})
-     .then(function(){st.busy=false;toast(verdict==='Confirm'?'✓ Geklärt: survey':'✕ Geklärt: rejected');conflictsView()})
+     .then(function(){st.busy=false;toast(verdict==='Confirm'?'✓ Geklärt: beide Yes':'✕ Geklärt: beide No');conflictsView()})
      .catch(function(e){st.busy=false;el.style.opacity='1';toast('Fehler: '+e.message)})}
    el.querySelector('.cok').onclick=function(){resolve('Confirm')};
    el.querySelector('.cno').onclick=function(){resolve('Reject')}})

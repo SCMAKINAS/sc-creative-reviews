@@ -21,10 +21,11 @@
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
 //
-// SONDERFORMAT ?format=sketches (Produktdesign-Abstimmung, SCA PRODUCT-LAB):
-// KEIN Figma-Sync — Sketches entstehen direkt in Airtable (Caro). Eigene
-// Routen-Semantik, eigener Datenfluss, siehe SK-Block unten:
-//   GET  /queue?format=sketches&reviewer=Vuven|Max   offene Sketches
+// SONDERFORMAT ?format=sketches (Design-Team-Abstimmung, SCA PRODUCT-LAB):
+// KEIN Figma-Sync — bewertet werden ARTWORKS aus dem Airtable-View
+// "⭐ 1. Open for ranking (Max/Vuven)". Votes landen in den bestehenden
+// Feldern "Max Rank"/"Vuven Rank" (Yes/No). Siehe SK-Block unten:
+//   GET  /queue?format=sketches&reviewer=Vuven|Max   offene Artworks
 //   POST /review?format=sketches    {recordId,reviewer,verdict,tags?,comment?}
 //   POST /unreview?format=sketches  {reviewId}
 //   GET  /conflicts?format=sketches Konflikte (Vuven vs. Max) mit beiden Votes
@@ -783,75 +784,78 @@ async function rollup() {
 }
 
 // ---------- Sketch-Review (format=sketches) ----------
-// Produktdesign-Abstimmung in SCA PRODUCT-LAB. Anders als die Figma-Formate:
-// Sketches entstehen direkt in Airtable (Tabelle "Sketches", gepflegt von
-// Caro) — kein Figma-Sync, kein Asset-Import. Zwei gleichberechtigte
-// Entscheider (Vuven, Max) voten blind Confirm/Reject:
-//   beide Confirm -> "App Review Ergebnis" = Confirmed, Variant Status "survey"
-//   beide Reject  -> Rejected, Variant Status "rejected"
-//   uneins        -> Konflikt, Variant Status bleibt unberuehrt; /conflicts
-//                    zeigt beide Votes, /resolve schreibt die Einigung.
-// Der Variant Status wird nur gesetzt, wenn er noch leer ist (Caro kann
-// manuell vorgreifen). Kommentare > 3 Zeichen werden automatisch als
-// Regel-Vorschlag (SKR-xx) in "Sketch Rules" gesammelt — Futter fuers
-// Design-Brain; Max/Vuven bestaetigen/verwerfen per Status in Airtable.
+// Design-Team-Abstimmung in SCA PRODUCT-LAB. Bewertet werden ARTWORKS —
+// die Queue ist der Airtable-View "⭐ 1. Open for ranking (Max/Vuven)"
+// (Pipeline-Schritt 1; welche Artworks anstehen, steuert das Team ueber
+// diesen View). Kein Figma-Sync. Zwei gleichberechtigte Entscheider
+// (Vuven, Max) voten blind; die Votes landen in den BESTEHENDEN Feldern
+// "Vuven Rank"/"Max Rank" (Confirm=Yes, Reject=No):
+//   beide Yes -> "App Review Ergebnis" = Confirmed (weiter zu Schritt 2,
+//                Robert/Requesting — gesteuert durch die View-Filter)
+//   beide No  -> Rejected (aussortiert)
+//   uneins    -> Konflikt; /conflicts zeigt beide Votes, /resolve schreibt
+//                die Einigung und vereinheitlicht beide Ranks.
+// Kommentare > 3 Zeichen werden automatisch als Regel-Vorschlag (SKR-xx)
+// in "Sketch Rules" gesammelt — Futter fuers Design-Brain; Max/Vuven
+// bestaetigen/verwerfen per Status in Airtable.
 const SK = {
-  base: "appJr0gEyT3BUVr0A",    // SCA PRODUCT-LAB
-  sketches: "tbl7RrV9rtGqM0zgb", // Tabelle "Sketches"
-  reviews: "tblByFgL2zJbJG3cP",  // Tabelle "Sketch Reviews"
-  rules: "tblgRflphUBCOOt4o",    // Tabelle "Sketch Rules"
+  base: "appJr0gEyT3BUVr0A",     // SCA PRODUCT-LAB
+  artworks: "tbl1LaUaqitf5OMyW",  // Tabelle "Artworks" (Queue-Quelle)
+  view: "viwjoPLvEwk7aFl6z",      // View "⭐ 1. Open for ranking (Max/Vuven)"
+  reviews: "tblByFgL2zJbJG3cP",   // Tabelle "Sketch Reviews"
+  rules: "tblgRflphUBCOOt4o",     // Tabelle "Sketch Rules"
   reviewers: ["Vuven", "Max"],
-  // Primaerfeld ist eine Formel mit Sonderzeichen im Namen -> Abfrage per Feld-ID.
-  primary: 'Sketch ID (Formula) neu verknüpfen mit "Concept"-Spalte',
-  primaryId: "fld1eAkrKS4YcQgim",
   f: {
-    image: "Sketch Image",
-    status: "Variant Status",
-    concept: "Concept Titel (from Concept)",
-    name: "Sketch Name",
-    date: "Date",
-    notes: "Variant Feedback Notes by Max and Vuven",
+    autoId: "Auto-ID",
+    desc: "Artwork-Description",
+    tags: "Tags",
+    image: "Attachments",
+    notes: "Notes:",
+    buyStatus: "buy process Status",
     result: "App Review Ergebnis",
     resultAt: "App Review Datum",
   },
 };
-const skVoteField = (reviewer: string) => `App Review ${reviewer}`;
+// Votes leben in den bestehenden Ranking-Feldern der Artworks-Tabelle.
+const skVoteField = (reviewer: string) => `${reviewer} Rank`;
+const skToRank = (verdict: string) => (verdict === "Confirm" ? "Yes" : "No");
+const skToVerdict = (rank: any) => (rank === "Yes" ? "Confirm" : rank === "No" ? "Reject" : null);
 
 function skShape(r: any) {
   const f = r.fields ?? {};
   const img = f[SK.f.image]?.[0];
   return {
     recordId: r.id,
-    id: String(f[SK.primary] ?? "").replace(/\s+/g, " ").trim() || r.id,
-    name: f[SK.f.name] ?? "",
-    concept: (f[SK.f.concept] ?? [])[0] ?? "",
-    date: f[SK.f.date] ?? null,
+    id: `ART-${f[SK.f.autoId] ?? "?"}`,
+    name: String(f[SK.f.desc] ?? "").trim(),
+    concept: (f[SK.f.tags] ?? []).join(" · "),
+    date: String(r.createdTime ?? "").slice(0, 10) || null,
     image: img?.thumbnails?.large?.url ?? img?.url ?? null,
     imageFull: img?.url ?? null,
-    votes: { Vuven: f[skVoteField("Vuven")] ?? null, Max: f[skVoteField("Max")] ?? null },
+    votes: { Vuven: skToVerdict(f[skVoteField("Vuven")]), Max: skToVerdict(f[skVoteField("Max")]) },
     result: f[SK.f.result] ?? null,
-    status: f[SK.f.status] ?? null,
+    status: f[SK.f.buyStatus] ?? null,
   };
 }
 function skFieldParams(): string {
   const names = [
-    SK.f.image, SK.f.status, SK.f.concept, SK.f.name, SK.f.date,
+    SK.f.autoId, SK.f.desc, SK.f.tags, SK.f.image, SK.f.buyStatus,
     skVoteField("Vuven"), skVoteField("Max"), SK.f.result,
   ];
-  return [SK.primaryId, ...names].map((n) => `fields[]=${encodeURIComponent(n)}`).join("&");
+  return names.map((n) => `fields[]=${encodeURIComponent(n)}`).join("&");
 }
 
-// Offene Sketches fuer einen Reviewer: Bild da, Variant Status leer, eigener Vote leer.
+// Offene Artworks fuer einen Reviewer: im Ranking-View, Bild da, eigener Rank leer.
 async function skQueue(req: Request) {
   const reviewer = new URL(req.url).searchParams.get("reviewer") ?? "";
   if (!SK.reviewers.includes(reviewer)) {
     return json({ error: `reviewer muss ${SK.reviewers.join("|")} sein` }, 400);
   }
-  const formula = `AND({${SK.f.status}}='', {${SK.f.image}}!='', {${skVoteField(reviewer)}}='')`;
+  const formula = `AND({${SK.f.image}}!='', {${skVoteField(reviewer)}}='')`;
   const recs = await atAll(
-    SK.base, SK.sketches,
-    `filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}` +
-      `&sort[0][field]=${encodeURIComponent(SK.f.date)}&sort[0][direction]=asc`,
+    SK.base, SK.artworks,
+    `view=${SK.view}&filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}` +
+      `&sort[0][field]=${encodeURIComponent(SK.f.autoId)}&sort[0][direction]=asc`,
   );
   return json({ sketches: recs.map(skShape) });
 }
@@ -864,15 +868,15 @@ async function skReview(req: Request) {
   if (!SK.reviewers.includes(b.reviewer)) return json({ error: "reviewer muss Vuven|Max sein" }, 400);
   if (!["Confirm", "Reject"].includes(b.verdict)) return json({ error: "verdict muss Confirm|Reject sein" }, 400);
 
-  const sk = await at(SK.base, `${SK.sketches}/${b.recordId}`);
+  const sk = await at(SK.base, `${SK.artworks}/${b.recordId}`);
   if (sk.fields?.[skVoteField(b.reviewer)]) {
-    return json({ error: `${b.reviewer} hat diesen Sketch bereits bewertet.` }, 409);
+    return json({ error: `${b.reviewer} hat dieses Artwork bereits bewertet.` }, 409);
   }
-  const title = String(sk.fields?.[SK.primary] ?? "").replace(/\s+/g, " ").trim() || b.recordId;
+  const title = `ART-${sk.fields?.[SK.f.autoId] ?? b.recordId}`;
 
   const rec = await atCreate(SK.base, SK.reviews, [{ fields: {
     Review: `${title} — ${b.reviewer}`,
-    Sketch: [b.recordId],
+    Artwork: [b.recordId],
     "Sketch Record ID": b.recordId,
     Reviewer: b.reviewer,
     Votum: b.verdict,
@@ -881,22 +885,20 @@ async function skReview(req: Request) {
     Datum: new Date().toISOString(),
   } }]);
 
-  // Vote am Sketch vermerken; liegt der andere Vote schon vor -> Konsens-Logik.
-  const patch: any = { [skVoteField(b.reviewer)]: b.verdict };
+  // Vote in den bestehenden Rank-Feldern vermerken (Confirm=Yes, Reject=No);
+  // liegt der andere Rank schon vor -> Konsens-Logik. Die Ranks selbst sind
+  // der Prozess-Trigger fuer die nachgelagerten Pipeline-Views (Robert etc.).
+  const rank = skToRank(b.verdict);
+  const patch: any = { [skVoteField(b.reviewer)]: rank };
   const other = SK.reviewers.find((r) => r !== b.reviewer)!;
-  const otherVote = sk.fields?.[skVoteField(other)] ?? null;
+  const otherRank = sk.fields?.[skVoteField(other)] ?? null;
   let result: string | null = null;
-  if (otherVote) {
-    result = otherVote === b.verdict ? (b.verdict === "Confirm" ? "Confirmed" : "Rejected") : "Konflikt";
+  if (otherRank) {
+    result = otherRank === rank ? (rank === "Yes" ? "Confirmed" : "Rejected") : "Konflikt";
     patch[SK.f.result] = result;
     patch[SK.f.resultAt] = new Date().toISOString();
-    // Status nur setzen, wenn Caro ihn nicht schon manuell vergeben hat.
-    if (!sk.fields?.[SK.f.status]) {
-      if (result === "Confirmed") patch[SK.f.status] = "survey";
-      if (result === "Rejected") patch[SK.f.status] = "rejected";
-    }
   }
-  await atPatch(SK.base, SK.sketches, [{ id: b.recordId, fields: patch }]);
+  await atPatch(SK.base, SK.artworks, [{ id: b.recordId, fields: patch }]);
 
   // Substanzielle Kommentare (Confirm UND Reject) werden Regel-Vorschlaege —
   // Ziel ist, moeglichst viele Learnings einzusammeln.
@@ -929,9 +931,9 @@ async function skAddRule(text: string, quelle: string): Promise<string> {
   return id;
 }
 
-// Undo: Review-Record loeschen, Vote-Spalte leeren; ein bereits berechnetes
-// Ergebnis wird zurueckgenommen. Den Variant Status nur zuruecksetzen, wenn
-// er noch exakt dem App-gesetzten Wert entspricht (Caro koennte ihn geaendert haben).
+// Undo: Review-Record loeschen, Rank-Feld leeren; ein bereits berechnetes
+// Ergebnis wird zurueckgenommen (das Artwork faellt damit zurueck in den
+// Ranking-View).
 async function skUnreview(req: Request) {
   const b = await req.json();
   if (!b.reviewId) return json({ error: "reviewId fehlt" }, 400);
@@ -939,28 +941,25 @@ async function skUnreview(req: Request) {
   const reviewer = rec?.fields?.["Reviewer"];
   const recordId = b.recordId ?? rec?.fields?.["Sketch Record ID"];
   await at(SK.base, `${SK.reviews}/${b.reviewId}`, { method: "DELETE" });
-  if (!reviewer || !recordId) return json({ ok: true, note: "Review geloescht, Sketch unveraendert." });
+  if (!reviewer || !recordId) return json({ ok: true, note: "Review geloescht, Artwork unveraendert." });
 
-  const sk = await at(SK.base, `${SK.sketches}/${recordId}`);
+  const sk = await at(SK.base, `${SK.artworks}/${recordId}`);
   const patch: any = { [skVoteField(reviewer)]: null };
-  const hadResult = sk.fields?.[SK.f.result] ?? null;
-  if (hadResult) {
+  if (sk.fields?.[SK.f.result]) {
     patch[SK.f.result] = null;
     patch[SK.f.resultAt] = null;
-    const st = sk.fields?.[SK.f.status] ?? null;
-    if ((hadResult === "Confirmed" && st === "survey") || (hadResult === "Rejected" && st === "rejected")) {
-      patch[SK.f.status] = null;
-    }
   }
-  await atPatch(SK.base, SK.sketches, [{ id: recordId, fields: patch }]);
+  await atPatch(SK.base, SK.artworks, [{ id: recordId, fields: patch }]);
   return json({ ok: true });
 }
 
 // Konflikte: beide haben gevotet, aber unterschiedlich. Liefert beide Votes
 // inkl. Tags/Kommentaren zum Ausdiskutieren.
 async function skConflicts() {
+  // Ohne View: Konflikt-Artworks sind bereits beidseitig geranked und
+  // koennen aus dem Ranking-View herausgefallen sein.
   const formula = `{${SK.f.result}}='Konflikt'`;
-  const sks = await atAll(SK.base, SK.sketches, `filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}`);
+  const sks = await atAll(SK.base, SK.artworks, `filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}`);
   if (!sks.length) return json({ conflicts: [] });
   const revs = await atAll(SK.base, SK.reviews);
   const byId = new Map<string, any[]>();
@@ -985,35 +984,34 @@ async function skConflicts() {
   });
 }
 
-// Einigung nach Diskussion: setzt Ergebnis + Variant Status, haengt den
-// Klaerungs-Kommentar an die Feedback-Notes des Sketches (bewusst dort —
-// das Feld existiert seit jeher fuer Max'/Vuvens Begruendungen).
+// Einigung nach Diskussion: vereinheitlicht BEIDE Ranks auf die finale
+// Entscheidung (damit laeuft das Artwork sauber in die Pipeline weiter),
+// setzt das Ergebnis und haengt die Klaerungs-Notiz ans Notes-Feld.
 async function skResolve(req: Request) {
   const b = await req.json();
   for (const k of ["recordId", "verdict"]) {
     if (!b[k]) return json({ error: `${k} fehlt` }, 400);
   }
   if (!["Confirm", "Reject"].includes(b.verdict)) return json({ error: "verdict muss Confirm|Reject sein" }, 400);
-  const sk = await at(SK.base, `${SK.sketches}/${b.recordId}`);
+  const sk = await at(SK.base, `${SK.artworks}/${b.recordId}`);
   const confirmed = b.verdict === "Confirm";
+  const rank = skToRank(b.verdict);
   const patch: any = {
+    [skVoteField("Vuven")]: rank,
+    [skVoteField("Max")]: rank,
     [SK.f.result]: confirmed ? "Confirmed" : "Rejected",
     [SK.f.resultAt]: new Date().toISOString(),
   };
-  const st = sk.fields?.[SK.f.status] ?? null;
-  if (!st || st === "survey" || st === "rejected") {
-    patch[SK.f.status] = confirmed ? "survey" : "rejected";
-  }
   if ((b.comment ?? "").trim()) {
     const old = String(sk.fields?.[SK.f.notes] ?? "").trim();
-    const line = `Konflikt geklaert (${new Date().toISOString().slice(0, 10)}, ${confirmed ? "Confirm" : "Reject"}): ${String(b.comment).trim()}`;
+    const line = `Konflikt geklaert (${new Date().toISOString().slice(0, 10)}, ${confirmed ? "Yes" : "No"}): ${String(b.comment).trim()}`;
     patch[SK.f.notes] = old ? `${old}\n${line}` : line;
   }
-  await atPatch(SK.base, SK.sketches, [{ id: b.recordId, fields: patch }]);
+  await atPatch(SK.base, SK.artworks, [{ id: b.recordId, fields: patch }]);
   let ruleId: string | null = null;
   if ((b.comment ?? "").trim().length > 3) {
     try {
-      const title = String(sk.fields?.[SK.primary] ?? "").replace(/\s+/g, " ").trim() || b.recordId;
+      const title = `ART-${sk.fields?.[SK.f.autoId] ?? b.recordId}`;
       ruleId = await skAddRule(String(b.comment).trim(), `Konflikt-Klaerung ${title} (${b.verdict})`);
     } catch (e) {
       console.log(`[sk-rules] Vorschlag fehlgeschlagen: ${String(e)}`);
@@ -1060,11 +1058,14 @@ async function skFailtags() {
 // Diagnose: prueft den Airtable-Zugriff (PAT!) und liefert Queue-Staende.
 async function skProbe() {
   const t0 = Date.now();
-  const count = async (formula: string) =>
-    (await atAll(SK.base, SK.sketches, `filterByFormula=${encodeURIComponent(formula)}&fields[]=${SK.primaryId}`)).length;
+  const count = async (formula: string, view = "") =>
+    (await atAll(
+      SK.base, SK.artworks,
+      `${view ? `view=${view}&` : ""}filterByFormula=${encodeURIComponent(formula)}&fields[]=${encodeURIComponent(SK.f.autoId)}`,
+    )).length;
   const [qV, qM, conflicts] = await Promise.all([
-    count(`AND({${SK.f.status}}='', {${SK.f.image}}!='', {${skVoteField("Vuven")}}='')`),
-    count(`AND({${SK.f.status}}='', {${SK.f.image}}!='', {${skVoteField("Max")}}='')`),
+    count(`AND({${SK.f.image}}!='', {${skVoteField("Vuven")}}='')`, SK.view),
+    count(`AND({${SK.f.image}}!='', {${skVoteField("Max")}}='')`, SK.view),
     count(`{${SK.f.result}}='Konflikt'`),
   ]);
   const revs = await atAll(SK.base, SK.reviews, "fields[]=Reviewer");

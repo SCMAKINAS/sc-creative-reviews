@@ -98,17 +98,17 @@ Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 
 ## Sketch Review (Design-Team) — `?format=sketches`
 
-Zweite App auf derselben Edge Function: Produktdesign-Sketches statt Marketing-Creatives. **Kein Figma-Sync** — die Sketches liegen bereits in Airtable (SCA PRODUCT-LAB, Tabelle „Sketches", gepflegt von Caro). App-URL: `https://scmakinas.github.io/sc-creative-reviews/sketches/` (+`?key=` wie gehabt, gleicher REVIEW_KEY, gleicher localStorage-Key).
+Zweite App auf derselben Edge Function: **Artwork-Ranking fürs Produktdesign** statt Marketing-Creatives. **Kein Figma-Sync** — bewertet werden Artworks aus SCA PRODUCT-LAB. Die Queue ist der Airtable-View **„⭐ 1. Open for ranking (Max/Vuven)"** (Schritt 1 der Artwork-Pipeline: 1. Ranking → 2. Requesting Robert → 3. Artist reply → 4. Price approval → 5. Final Stages). Was zur Abstimmung ansteht, steuert das Team allein über diesen View. App-URL: `https://scmakinas.github.io/sc-creative-reviews/sketches/` (+`?key=` wie gehabt, gleicher REVIEW_KEY, gleicher localStorage-Key).
 
-**Entscheider-Modell (anders als bei den Creatives):** Vuven und Max sind **gleichberechtigt** und voten blind (keiner sieht das Votum des anderen vor dem eigenen).
+**Entscheider-Modell (anders als bei den Creatives):** Vuven und Max sind **gleichberechtigt** und voten blind (keiner sieht das Votum des anderen vor dem eigenen). Die Votes landen in den **bestehenden Feldern `Vuven Rank` / `Max Rank`** (Confirm=Yes, Reject=No) — die App ersetzt das manuelle Ranking, nicht die Pipeline.
 
 | Konstellation | Wirkung in Airtable |
 |---|---|
-| Beide **Confirm** | `App Review Ergebnis` = Confirmed, `Variant Status` → **survey** (nur wenn noch leer — Caro kann manuell vorgreifen; „directly 🚀" bleibt eine manuelle Entscheidung außerhalb der App) |
-| Beide **Reject** | Ergebnis = Rejected, `Variant Status` → **rejected** |
-| Uneins | Ergebnis = **Konflikt**, Status bleibt unberührt. Tab KONFLIKTE in der App zeigt beide Votes; `POST /resolve` schreibt die Einigung (+ Klärungs-Notiz in „Variant Feedback Notes by Max and Vuven") |
+| Beide **Yes** | `App Review Ergebnis` = Confirmed — das Artwork fällt aus dem Ranking-View und läuft über die View-Filter weiter zu Schritt 2 (Robert/Requesting) |
+| Beide **No** | Ergebnis = Rejected — aussortiert |
+| Uneins | Ergebnis = **Konflikt**. Tab KONFLIKTE in der App zeigt beide Votes; `POST /resolve` schreibt die Einigung, **vereinheitlicht beide Ranks** und hängt die Klärungs-Notiz ans Artwork-Feld „Notes:" |
 
-**Queue-Definition:** Sketch hat Bild + `Variant Status` leer + eigener App-Vote leer. Neue Sketches von Caro erscheinen damit automatisch — kein Sync, kein Cron.
+**Queue-Definition:** Artwork liegt im Ranking-View + hat ein Bild + eigener Rank leer. UNDO leert den Rank wieder — das Artwork fällt zurück in den View.
 
 **Learnings/Design-Brain:** Jede Notiz > 3 Zeichen (bei Confirm, Reject oder Konflikt-Klärung) wird automatisch Regel-Vorschlag `SKR-xx` in der Tabelle „Sketch Rules" (Status „Vorschlag" — Vuven/Max bestätigen/verwerfen per Status-Feld in Airtable). Reject-Tags landen als Select-Optionen in „Sketch Reviews" und stehen via `GET /failtags?format=sketches` allen Geräten zur Verfügung.
 
@@ -126,7 +126,7 @@ Zweite App auf derselben Edge Function: Produktdesign-Sketches statt Marketing-C
 - Statics-Base `appKktIMvTU1AqOEN` — Models `tblRUZ99u9ApeOdMu`, Expressions `tbl1RQkCERHpz8Nug`, Depictions `tbly4pX6YMtAfHYyz`, Assets `tbl2rpHgH2D0hebQ4`, Reviews `tbltxjO4jLxWbqTRy`, Regeln `tblZIQ6vTEQGwD2fn`
 - Memes-Base `appW9B8mQaT7krmg2` — Assets `tblQIYC1QRsU9Xp1r`, Reviews `tblHCqfdQ6OzHHCdi`
 - Branding-Base `appPaEX5g0qOOz5L4` — Assets `tblN6h6bLwkaGWsUo`, Reviews `tblXNaFF8fy5xdugq`
-- **Sketches:** SCA PRODUCT-LAB `appJr0gEyT3BUVr0A` — Sketches `tbl7RrV9rtGqM0zgb` (+ App-Spalten „App Review Vuven/Max/Ergebnis/Datum"), Sketch Reviews `tblByFgL2zJbJG3cP`, Sketch Rules `tblgRflphUBCOOt4o`. **Der `AIRTABLE_PAT` in Supabase muss diese Base einschließen!**
+- **Sketch Review (Artworks):** SCA PRODUCT-LAB `appJr0gEyT3BUVr0A` — Artworks `tbl1LaUaqitf5OMyW` (Queue-View `viwjoPLvEwk7aFl6z` „⭐ 1. Open for ranking"; Votes in „Vuven Rank"/„Max Rank", App-Spalten „App Review Ergebnis/Datum"), Sketch Reviews `tblByFgL2zJbJG3cP`, Sketch Rules `tblgRflphUBCOOt4o`. **Der `AIRTABLE_PAT` in Supabase muss diese Base einschließen!** (Die Tabelle „Sketches" `tbl7RrV9rtGqM0zgb` trägt noch ungenutzte App-Spalten aus der ersten Iteration — bei Bedarf löschbar.)
 - Figma-Board `pPSeVQKzDjuHv3Gf8wDp3u`, Review-Bereich Node `3156:787` („Creative Review")
 
 Die Fail-Tag-Vorschläge in der App basieren auf Max' Original-Feedback (Gruppen-DM Jonas/Max/Flo, Static-Reviews 27.07. + 31.07.2026) und dem Visual Direction Sheet V2.1.
