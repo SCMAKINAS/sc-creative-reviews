@@ -113,7 +113,9 @@ Zweite App auf derselben Edge Function: **Artwork-Ranking fürs Produktdesign** 
 
 **Learnings/Design-Brain:** Jede Notiz > 3 Zeichen (bei Confirm, Reject oder Konflikt-Klärung) wird automatisch Regel-Vorschlag `SKR-xx` in der Tabelle „Artwork Rules" (Status „Vorschlag" — Vuven/Max bestätigen/verwerfen per Status-Feld in Airtable). Reject-Tags landen als Select-Optionen in „Artwork Reviews" und stehen via `GET /failtags?format=artworks` allen Geräten zur Verfügung.
 
-**Routen (alle mit `?format=artworks`):** `GET /queue?reviewer=Vuven|Max` · `POST /review` `{recordId,reviewer,verdict:Confirm|Reject,tags?,comment?,seconds?,session?}` · `POST /unreview` `{reviewId}` · `GET /conflicts` · `POST /resolve` `{recordId,verdict,comment?}` · `GET /rules` · `GET /failtags` · `GET /probe` (prüft PAT-Zugriff + Queue-Stände). Sync/Layout/Baseline existieren für artworks bewusst nicht.
+**Routen (alle mit `?format=artworks`):** `GET /queue?reviewer=Vuven|Max` · `POST /review` `{recordId,reviewer,verdict:Confirm|Reject,tags?,comment?,seconds?,session?}` · `POST /unreview` `{reviewId}` · `GET /conflicts` · `POST /resolve` `{recordId,verdict,comment?}` · `GET /rules` · `GET /failtags` · `GET /probe` (prüft PAT-Zugriff + Queue-Stände) · `POST /notify` `{message?}` (Handy-Push, s.u.). Sync/Layout/Baseline existieren für artworks bewusst nicht.
+
+**Handy-Push bei neuen Artworks:** `POST /notify?format=artworks` zählt die offene Ranking-Queue live und schickt einen ntfy-Push („X Artworks offen im Ranking", Titel „Artwork Review", Tap öffnet die Artwork-App — bewusst OHNE Key im Link). **Gleiches geheimes Topic wie die Creative-Review-Pushes** (`app_config`, Key `ntfy_topic` — eine Topic-Rotation greift damit automatisch für beide Apps; Titel/Link unterscheiden die Quelle). Kein Cron: Der Import-Prozess (Design-Engine-Session, die neue Artworks in die Base einspielt) ruft die Route **nach dem Einspielen** auf. Bei leerer Queue wird nichts gesendet.
 
 ## Bekannte Stolperfallen
 

@@ -35,6 +35,8 @@
 //   GET  /rules?format=artworks     Artwork-Regelkatalog (SKR-xx)
 //   GET  /failtags?format=artworks  bekannte Feedback-Tags
 //   GET  /probe?format=artworks     Airtable-Zugriff + Queue-Staende pruefen
+//   POST /notify?format=artworks    ntfy-Push "X Artworks offen" {message?}
+//                                   (ruft der Import-Prozess nach dem Einspielen)
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
 // Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
@@ -182,9 +184,11 @@ async function baselineIds(): Promise<Set<string>> {
 
 // ---------- Push-Notification (ntfy.sh) ----------
 // Handy-Push an alle Abonnenten des geheimen Topics (app_config.ntfy_topic,
-// per SQL rotierbar). JSON-Publish, weil Umlaute nicht in HTTP-Header duerfen.
-// Ein Notification-Fehler darf den Sync NIE brechen. Kein Review-Key im Link!
-async function notify(message: string) {
+// per SQL rotierbar — EIN Topic fuer alle Apps dieses Projekts, Titel/Link
+// unterscheiden die Quelle). JSON-Publish, weil Umlaute nicht in HTTP-Header
+// duerfen. Ein Notification-Fehler darf den Flow NIE brechen. Kein Review-Key
+// im Link — das Topic ist geheim, aber unauthentifiziert!
+async function notify(message: string, opts: { title?: string; click?: string; tags?: string[] } = {}) {
   try {
     const rows = await pg("app_config?key=eq.ntfy_topic&select=value");
     const topic = rows?.[0]?.value;
@@ -194,10 +198,10 @@ async function notify(message: string) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         topic,
-        title: "Creative Review",
+        title: opts.title ?? "Creative Review",
         message,
-        click: "https://scmakinas.github.io/sc-creative-reviews/",
-        tags: ["framed_picture"],
+        click: opts.click ?? "https://scmakinas.github.io/sc-creative-reviews/",
+        tags: opts.tags ?? ["framed_picture"],
       }),
     });
   } catch (e) {
@@ -1060,6 +1064,32 @@ async function skFailtags() {
   return json({ source: "reviews", tags });
 }
 
+// Handy-Push an die Reviewer, wenn Artworks im Ranking liegen. Bewusst NICHT
+// automatisch getriggert (kein Cron): Der Import-Prozess (Design-Engine /
+// Claude-Session) ruft POST /notify?format=artworks auf, NACHDEM neue
+// Artworks eingespielt sind. Anzahl kommt live aus der Queue; bei leerer
+// Queue wird nichts gesendet. Optionaler Body {message} ueberschreibt den Text.
+async function skNotifyQueue(req: Request) {
+  const b = await req.json().catch(() => ({}));
+  const count = async (reviewer: string) =>
+    (await atAll(
+      SK.base, SK.artworks,
+      `view=${SK.view}&filterByFormula=${encodeURIComponent(`AND({${SK.f.image}}!='', {${skVoteField(reviewer)}}='')`)}` +
+        `&fields[]=${encodeURIComponent(SK.f.autoId)}`,
+    )).length;
+  const [qV, qM] = await Promise.all([count("Vuven"), count("Max")]);
+  const open = Math.max(qV, qM);
+  if (!open) return json({ notified: false, queue: { Vuven: qV, Max: qM }, note: "Queue leer — kein Push." });
+  const msg = String(b?.message ?? "").trim() ||
+    `${open} Artwork${open === 1 ? "" : "s"} offen im Ranking (Vuven ${qV} · Max ${qM})`;
+  await notify(msg, {
+    title: "Artwork Review",
+    click: "https://scmakinas.github.io/sc-creative-reviews/artworks/",
+    tags: ["art"],
+  });
+  return json({ notified: true, queue: { Vuven: qV, Max: qM } });
+}
+
 // Diagnose: prueft den Airtable-Zugriff (PAT!) und liefert Queue-Staende.
 async function skProbe() {
   const t0 = Date.now();
@@ -1109,6 +1139,7 @@ Deno.serve(async (req) => {
       if (route === "rules") return await skRules();
       if (route === "failtags") return await skFailtags();
       if (route === "probe") return await skProbe();
+      if (route === "notify" && req.method === "POST") return await skNotifyQueue(req);
       return json({ error: `Route /${route} gibt es fuer format=artworks nicht (kein Figma-Sync).` }, 400);
     }
     if (route === "sync" && req.method === "POST") return await sync(req);
