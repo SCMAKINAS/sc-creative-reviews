@@ -21,18 +21,20 @@
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
 //
-// SONDERFORMAT ?format=sketches (Design-Team-Abstimmung, SCA PRODUCT-LAB):
+// SONDERFORMAT ?format=artworks (Design-Team-Abstimmung, SCA PRODUCT-LAB):
 // KEIN Figma-Sync — bewertet werden ARTWORKS aus dem Airtable-View
 // "⭐ 1. Open for ranking (Max/Vuven)". Votes landen in den bestehenden
-// Feldern "Max Rank"/"Vuven Rank" (Yes/No). Siehe SK-Block unten:
-//   GET  /queue?format=sketches&reviewer=Vuven|Max   offene Artworks
-//   POST /review?format=sketches    {recordId,reviewer,verdict,tags?,comment?}
-//   POST /unreview?format=sketches  {reviewId}
-//   GET  /conflicts?format=sketches Konflikte (Vuven vs. Max) mit beiden Votes
-//   POST /resolve?format=sketches   {recordId,verdict,comment?} Konflikt klaeren
-//   GET  /rules?format=sketches     Sketch-Regelkatalog (SKR-xx)
-//   GET  /failtags?format=sketches  bekannte Feedback-Tags
-//   GET  /probe?format=sketches     Airtable-Zugriff + Queue-Staende pruefen
+// Feldern "Max Rank"/"Vuven Rank" (Yes/No). "sketches" ist nur noch ein
+// Uebergangs-Alias (entfernen, sobald die echte Sketch-App kommt — der
+// Key ist dafuer reserviert). Siehe SK-Block unten:
+//   GET  /queue?format=artworks&reviewer=Vuven|Max   offene Artworks
+//   POST /review?format=artworks    {recordId,reviewer,verdict,tags?,comment?}
+//   POST /unreview?format=artworks  {reviewId}
+//   GET  /conflicts?format=artworks Konflikte (Vuven vs. Max) mit beiden Votes
+//   POST /resolve?format=artworks   {recordId,verdict,comment?} Konflikt klaeren
+//   GET  /rules?format=artworks     Artwork-Regelkatalog (SKR-xx)
+//   GET  /failtags?format=artworks  bekannte Feedback-Tags
+//   GET  /probe?format=artworks     Airtable-Zugriff + Queue-Staende pruefen
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
 // Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
@@ -783,7 +785,7 @@ async function rollup() {
   });
 }
 
-// ---------- Sketch-Review (format=sketches) ----------
+// ---------- Artwork-Review (format=artworks) ----------
 // Design-Team-Abstimmung in SCA PRODUCT-LAB. Bewertet werden ARTWORKS —
 // die Queue ist der Airtable-View "⭐ 1. Open for ranking (Max/Vuven)"
 // (Pipeline-Schritt 1; welche Artworks anstehen, steuert das Team ueber
@@ -802,8 +804,8 @@ const SK = {
   base: "appJr0gEyT3BUVr0A",     // SCA PRODUCT-LAB
   artworks: "tbl1LaUaqitf5OMyW",  // Tabelle "Artworks" (Queue-Quelle)
   view: "viwjoPLvEwk7aFl6z",      // View "⭐ 1. Open for ranking (Max/Vuven)"
-  reviews: "tblByFgL2zJbJG3cP",   // Tabelle "Sketch Reviews"
-  rules: "tblgRflphUBCOOt4o",     // Tabelle "Sketch Rules"
+  reviews: "tblByFgL2zJbJG3cP",   // Tabelle "Artwork Reviews"
+  rules: "tblgRflphUBCOOt4o",     // Tabelle "Artwork Rules"
   reviewers: ["Vuven", "Max"],
   f: {
     autoId: "Auto-ID",
@@ -857,7 +859,10 @@ async function skQueue(req: Request) {
     `view=${SK.view}&filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}` +
       `&sort[0][field]=${encodeURIComponent(SK.f.autoId)}&sort[0][direction]=asc`,
   );
-  return json({ sketches: recs.map(skShape) });
+  // "sketches"-Key doppelt ausgeliefert, solange der Uebergangs-Alias lebt
+  // (gecachte alte App-Version liest d.sketches).
+  const shaped = recs.map(skShape);
+  return json({ artworks: shaped, sketches: shaped });
 }
 
 async function skReview(req: Request) {
@@ -877,7 +882,7 @@ async function skReview(req: Request) {
   const rec = await atCreate(SK.base, SK.reviews, [{ fields: {
     Review: `${title} — ${b.reviewer}`,
     Artwork: [b.recordId],
-    "Sketch Record ID": b.recordId,
+    "Artwork Record ID": b.recordId,
     Reviewer: b.reviewer,
     Votum: b.verdict,
     "Feedback Tags": b.tags ?? [],
@@ -905,7 +910,7 @@ async function skReview(req: Request) {
   let ruleId: string | null = null;
   if ((b.comment ?? "").trim().length > 3) {
     try {
-      ruleId = await skAddRule(String(b.comment).trim(), `Sketch-Review ${title} · ${b.reviewer} (${b.verdict})`);
+      ruleId = await skAddRule(String(b.comment).trim(), `Artwork-Review ${title} · ${b.reviewer} (${b.verdict})`);
     } catch (e) {
       console.log(`[sk-rules] Vorschlag fehlgeschlagen: ${String(e)}`);
     }
@@ -939,7 +944,7 @@ async function skUnreview(req: Request) {
   if (!b.reviewId) return json({ error: "reviewId fehlt" }, 400);
   const rec = await at(SK.base, `${SK.reviews}/${b.reviewId}`);
   const reviewer = rec?.fields?.["Reviewer"];
-  const recordId = b.recordId ?? rec?.fields?.["Sketch Record ID"];
+  const recordId = b.recordId ?? rec?.fields?.["Artwork Record ID"];
   await at(SK.base, `${SK.reviews}/${b.reviewId}`, { method: "DELETE" });
   if (!reviewer || !recordId) return json({ ok: true, note: "Review geloescht, Artwork unveraendert." });
 
@@ -964,7 +969,7 @@ async function skConflicts() {
   const revs = await atAll(SK.base, SK.reviews);
   const byId = new Map<string, any[]>();
   for (const r of revs) {
-    const sid = r.fields?.["Sketch Record ID"];
+    const sid = r.fields?.["Artwork Record ID"];
     if (!sid) continue;
     if (!byId.has(sid)) byId.set(sid, []);
     byId.get(sid)!.push(r);
@@ -1091,8 +1096,11 @@ Deno.serve(async (req) => {
     return json({ error: "Secret fehlt: AIRTABLE_PAT nicht gesetzt." }, 500);
   }
   try {
-    // Sonderformat sketches: eigener Datenfluss ohne Figma, siehe SK-Block.
-    if (new URL(req.url).searchParams.get("format") === "sketches") {
+    // Sonderformat artworks: eigener Datenfluss ohne Figma, siehe SK-Block.
+    // "sketches" ist ein Uebergangs-Alias (alte App-Version im Cache) —
+    // entfernen, sobald die echte Sketch-App diesen Key uebernimmt.
+    const fk = new URL(req.url).searchParams.get("format");
+    if (fk === "artworks" || fk === "sketches") {
       if (route === "queue") return await skQueue(req);
       if (route === "review" && req.method === "POST") return await skReview(req);
       if (route === "unreview" && req.method === "POST") return await skUnreview(req);
@@ -1101,7 +1109,7 @@ Deno.serve(async (req) => {
       if (route === "rules") return await skRules();
       if (route === "failtags") return await skFailtags();
       if (route === "probe") return await skProbe();
-      return json({ error: `Route /${route} gibt es fuer format=sketches nicht (kein Figma-Sync).` }, 400);
+      return json({ error: `Route /${route} gibt es fuer format=artworks nicht (kein Figma-Sync).` }, 400);
     }
     if (route === "sync" && req.method === "POST") return await sync(req);
     if (route === "probe") return await probe(req);

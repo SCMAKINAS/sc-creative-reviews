@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<title>Stay Cold · Artwork Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0E0E0E;--ink2:#1C1C1C;--bone:#EDE8DF;--bone2:#B8B2A7;--blood:#B01F1F;--ok:#3E8E5A;--warn:#C99A2E;--line:#333}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#050505;color:var(--bone);font-family:'DM Sans',system-ui,sans-serif}
+body{display:flex;justify-content:center;padding:14px 12px 28px;min-height:100vh}
+#app{width:100%;max-width:420px}
+button,input,textarea{font-family:'DM Sans',system-ui,sans-serif}
+button:focus-visible,input:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.shell{background:var(--ink);border:1px solid #2E2E2E;border-radius:14px;overflow:hidden}
+.head{background:#000;padding:11px 13px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #2E2E2E}
+.logo{font-family:'Oswald','Arial Narrow',sans-serif;font-weight:700;font-size:14px;letter-spacing:.14em;line-height:1}
+.logo small{display:block;font-size:8px;letter-spacing:.2em;color:var(--bone2);font-weight:500;margin-top:3px}
+.pill{margin-left:auto;display:flex;background:#161616;border:1px solid var(--line);border-radius:20px;padding:2px}
+.pill button{background:none;border:0;color:var(--bone2);font-size:9px;font-weight:700;letter-spacing:.07em;padding:5px 10px;border-radius:16px;cursor:pointer;white-space:nowrap}
+.pill button.on{background:var(--blood);color:#fff}
+.bar{padding:8px 13px;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--bone2);letter-spacing:.05em;border-bottom:1px solid #222}
+.fmtsw{display:flex;gap:3px;background:#161616;border:1px solid var(--line);border-radius:14px;padding:2px}
+.fmtsw button{background:none;border:0;color:var(--bone2);font-size:8.5px;font-weight:700;letter-spacing:.08em;padding:3px 8px;border-radius:11px;cursor:pointer;position:relative}
+.fmtsw button.on{background:#2E2E2E;color:var(--bone)}
+.fmtsw .badge{display:inline-block;min-width:13px;padding:1px 3px;margin-left:4px;border-radius:8px;background:var(--warn);color:#000;font-size:7.5px;font-weight:700}
+.prog{flex:1;height:3px;background:#262626;border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--blood);transition:width .3s}
+.body{padding:13px}
+h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:.1em;margin:0 0 4px}
+.hint{font-size:9.5px;color:var(--bone2);line-height:1.5;margin-bottom:12px}
+/* Review */
+.stage{position:relative;height:clamp(430px,62vh,720px);padding:13px}
+.card{position:absolute;inset:13px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;touch-action:none;cursor:grab}
+.photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#fff;min-height:0;cursor:zoom-in}
+.photo img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
+.stamp{position:absolute;top:26%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:24px;letter-spacing:.1em;padding:6px 14px;border:4px solid;border-radius:7px;opacity:0;z-index:3;pointer-events:none;white-space:nowrap;background:#000000b8}
+.meta{padding:9px 12px 11px;border-top:1px solid var(--line);background:#141414;display:flex;align-items:center;gap:8px}
+.mid{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:.07em}
+.msub{font-size:10px;color:var(--bone2);margin-top:3px}
+.acts{display:flex;gap:7px;padding:0 13px 11px}
+.acts button{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:9px;padding:11px 2px;font-size:9.5px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+.acts button b{display:block;font-size:16px;margin-bottom:3px;font-weight:500}
+.acts .yes{border-color:#2F5F44}
+.acts .cmt{flex:0 0 64px}
+.subrow{display:flex;gap:7px;padding:0 13px}
+.subrow button{flex:1;background:none;border:0;color:var(--bone2);font-size:10px;letter-spacing:.07em;padding:0 0 12px;cursor:pointer;text-decoration:underline}
+.subrow button[disabled]{opacity:.28;text-decoration:none;cursor:default}
+.sec{font-size:9px;font-weight:700;letter-spacing:.11em;color:var(--bone2);margin:14px 0 7px}
+.rul{background:#141414;border:1px solid #2A2A2A;border-radius:8px;padding:9px 10px;margin-bottom:6px;font-size:11px;line-height:1.45}
+.rul .st{font-size:8px;font-weight:700;letter-spacing:.09em;padding:2px 6px;border-radius:3px;margin-right:6px;vertical-align:1px}
+.rul .st.fest{background:#16301C;color:#7FCE9C;border:1px solid #2F5F44}
+.rul .st.vor{background:#332A12;color:#E5C56B;border:1px solid #6E5A25}
+.rul .q{display:block;font-size:8.5px;color:#6C6862;margin-top:4px;letter-spacing:.04em}
+/* Sheets */
+.sheet{position:absolute;inset:0;background:#0a0a0af7;padding:13px;display:flex;flex-direction:column;z-index:10;overflow-y:auto}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chips button{background:#181818;border:1px solid #363636;color:var(--bone2);border-radius:14px;padding:5px 9px;font-size:10px;cursor:pointer;text-align:left}
+.chips button.on{background:var(--blood);border-color:var(--blood);color:#fff;font-weight:500}
+.newin{display:flex;gap:5px;margin-top:8px}
+.newin input{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px}
+.newin button{background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:7px;padding:0 12px;font-size:10px;font-weight:700;cursor:pointer}
+.cmt{margin-top:8px}
+.cmt input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px}
+.row{display:flex;gap:7px;margin-top:11px}
+.row button{flex:1;border-radius:8px;padding:11px;font-size:11px;font-weight:700;letter-spacing:.06em;cursor:pointer;border:1px solid var(--line);background:#161616;color:var(--bone2)}
+.save{background:var(--blood);border-color:var(--blood);color:#fff}
+.save[disabled]{opacity:1;background:#161616!important;border-color:var(--line)!important;color:#6C6862!important;cursor:not-allowed}
+.wide{width:100%;background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:9px;padding:12px;font-size:11px;font-weight:700;letter-spacing:.07em;cursor:pointer}
+/* Konflikte */
+.conf{background:#141414;border:1px solid #2A2A2A;border-left:3px solid var(--warn);border-radius:8px;padding:10px 11px;margin-bottom:10px}
+.conf .ctop{display:flex;gap:9px;align-items:flex-start}
+.conf img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;flex:0 0 64px}
+.conf .ct{font-family:'Oswald','Arial Narrow',sans-serif;font-size:12px;letter-spacing:.06em;line-height:1.3}
+.vote{font-size:10px;margin-top:5px;line-height:1.5;color:var(--bone2)}
+.vote b{color:var(--bone)}
+.vote .vc{font-weight:700}
+.vote .vc.ok{color:#7FCE9C}
+.vote .vc.no{color:#E08585}
+.conf .cin{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px;margin-top:8px}
+.conf .crow{display:flex;gap:6px;margin-top:7px}
+.conf .crow button{flex:1;border-radius:7px;padding:8px 4px;font-size:9.5px;font-weight:700;letter-spacing:.05em;cursor:pointer;border:1px solid var(--line);background:#161616;color:var(--bone)}
+.conf .crow .cok{border-color:#2F5F44}
+.conf .crow .cno{border-color:#5F2F2F}
+/* Summary / Zustaende */
+.tiles{display:flex;gap:6px;margin:12px 0}
+.tile{flex:1;background:#161616;border:1px solid #2E2E2E;border-radius:8px;padding:8px 4px;text-align:center}
+.tile b{display:block;font-family:'Oswald','Arial Narrow',sans-serif;font-size:20px;line-height:1}
+.tile span{font-size:8px;letter-spacing:.07em;color:var(--bone2)}
+.foot{font-size:9.5px;color:var(--bone2);line-height:1.6;margin-top:13px}
+.keyask input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:11px;font-size:12px;text-align:center;letter-spacing:.05em;margin:10px 0}
+.loadbox{padding:40px 13px;text-align:center;font-size:10px;letter-spacing:.08em;color:var(--bone2)}
+.keys{text-align:center;font-size:9px;color:#6C6862;letter-spacing:.08em;margin-top:10px}
+.toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#1C1C1C;border:1px solid var(--blood);color:var(--bone);padding:9px 14px;border-radius:8px;font-size:11px;z-index:80;display:none;max-width:88vw}
+/* Vollbild-Zoom */
+.viewer{position:fixed;inset:0;background:#000;display:none;z-index:60;touch-action:none;overflow:hidden}
+.viewer.open{display:block}
+.viewer img{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none;cursor:grab}
+.viewer .vclose{position:fixed;top:12px;right:12px;z-index:61;width:38px;height:38px;border-radius:999px;border:1px solid var(--line);background:#0E0E0Ed9;color:var(--bone);font-size:16px;cursor:pointer}
+.viewer .vhint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:61;color:var(--bone2);font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;padding:4px 10px;border-radius:3px;white-space:nowrap}
+@media(min-width:760px){#app{max-width:480px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="shell">
+    <div class="head">
+      <div class="logo">STAY COLD<small>ARTWORK REVIEW · DESIGN TEAM</small></div>
+      <div class="pill" id="pill">
+        <button data-r="Vuven">VUVEN</button>
+        <button data-r="Max">MAX</button>
+      </div>
+    </div>
+    <div class="bar"><div class="fmtsw" id="viewsw"><button data-v="queue">QUEUE</button><button data-v="conflicts">KONFLIKTE<span class="badge" id="cbadge" style="display:none">0</span></button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
+    <div id="view"></div>
+  </div>
+  <div class="keys" id="keys"></div>
+</div>
+
+<div class="viewer" id="viewer">
+  <img id="viewerimg" alt="">
+  <button class="vclose" id="viewerclose">&#10005;</button>
+  <div class="vhint">PINCH / DOPPELTIPP ZOOMEN · ZIEHEN BEWEGEN</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
+var KEY=null;
+
+// Start-Tags = Select-Optionen der Tabelle "Artwork Reviews" (SCA PRODUCT-LAB).
+// Der Server liefert via /failtags immer den aktuellen Stand (inkl. selbst
+// angelegter Tags) — diese Liste ist nur der Offline-Fallback.
+var BASE_TAGS=['Motiv zu schwach','Motiv-Stil passt nicht','Platzierung/Größe','Zu überladen','Zu leer/simpel','Farbe/Kontrast','Brand-Fit fehlt','Zu nah an Bestehendem','Produkt-Fit (Cut)','Kommerziell schwach'];
+var SERVER_TAGS=[];
+
+var st={reviewer:(localStorage.getItem('scar-reviewer')==='Max')?'Max':'Vuven',
+ view:'queue',queue:[],idx:0,total:0,session:'',t0:0,pend:null,busy:false,hist:[],conflicts:[]};
+
+var V=document.getElementById('view'),KEYS=document.getElementById('keys');
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function toast(m){var t=$('toast');t.textContent=m;t.style.display='block';setTimeout(function(){t.style.display='none'},4200)}
+function bar(p,l,r){$('prog').style.width=p+'%';$('phase').textContent=l;$('cnt').textContent=r}
+function api(path,opts){opts=opts||{};
+ opts.headers=Object.assign({'x-review-key':KEY,'content-type':'application/json'},opts.headers||{});
+ var sep=path.indexOf('?')>=0?'&':'?';
+ return fetch(API+path+sep+'format=artworks',opts).then(function(r){
+  return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
+
+// ---- Karten-Titel ----
+// Queue-Objekte sind Artworks: id="ART-1127", name=Beschreibung, concept=Tags.
+function titleOf(a){return a.id||'ARTWORK'}
+function subOf(a){
+ var d=(a.name||'').trim();
+ if(d.length>120)d=d.slice(0,117)+'…';
+ return [d,a.concept||''].filter(Boolean).join('  ·  ')||'Artwork zur Abstimmung'}
+
+// ---- Key ----
+// Gleicher localStorage-Key wie die Creative-Review-App (gleiche Domain):
+// wer dort schon eingeloggt ist, ist es hier auch.
+function cleanKey(v){return String(v||'').replace(/[^A-Za-z0-9_-]/g,'')}
+function initKey(){
+ var q=new URLSearchParams(location.search);
+ if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
+ else KEY=cleanKey(localStorage.getItem('scr-key'));
+ if(KEY)localStorage.setItem('scr-key',KEY);
+ if(!KEY){askKey();return false}
+ return true}
+function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
+ V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
+ '<div class="hint">Einmal eingeben — wird auf diesem Gerät gespeichert.</div>'+
+ '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
+ $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
+ $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
+
+// ---- Ansichts-Schalter (Queue / Konflikte) ----
+function viewsw(){
+ var btns=document.querySelectorAll('#viewsw button');
+ btns.forEach(function(b){
+  b.classList.toggle('on',b.dataset.v===st.view);
+  b.onclick=function(){if(st.view===b.dataset.v)return;
+   st.view=b.dataset.v;viewsw();
+   if(st.view==='conflicts')conflictsView();else load()}})}
+function setBadge(n){var b=$('cbadge');b.textContent=n;b.style.display=n>0?'inline-block':'none'}
+
+// ---- Reviewer-Pill ----
+function pill(){
+ var btns=document.querySelectorAll('#pill button');
+ btns.forEach(function(b){
+  b.classList.toggle('on',b.dataset.r===st.reviewer);
+  b.onclick=function(){if(st.reviewer===b.dataset.r)return;
+   st.reviewer=b.dataset.r;
+   localStorage.setItem('scar-reviewer',st.reviewer);pill();
+   if(st.view==='queue')load();else conflictsView()}})}
+
+// ---- Queue ----
+function load(){
+ bar(0,'ARTWORKS','');KEYS.textContent='';
+ api('/failtags').then(function(d){SERVER_TAGS=d.tags||[]}).catch(function(){});
+ api('/conflicts').then(function(d){st.conflicts=d.conflicts||[];setBadge(st.conflicts.length)}).catch(function(){});
+ V.innerHTML='<div class="loadbox">LADE ARTWORK-QUEUE FÜR '+esc(st.reviewer.toUpperCase())+' …</div>';
+ api('/queue?reviewer='+encodeURIComponent(st.reviewer)).then(function(d){
+  st.queue=d.artworks.filter(function(a){return a.image});
+  st.idx=0;st.total=st.queue.length;st.hist=[];st.pend=null;
+  st.session=st.reviewer+'-artworks-'+new Date().toISOString().slice(0,16);
+  card()}).catch(function(e){
+  var m=String(e.message);
+  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
+  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
+
+function cur(){return st.queue[st.idx]}
+
+// ---- Review-Karte ----
+var ST={Confirm:['CONFIRM','var(--ok)'],Reject:['REJECT','var(--blood)']};
+function card(){
+ var a=cur();
+ if(!a){summary();return}
+ bar(st.idx/st.total*100,'ARTWORKS',(st.idx+1)+'/'+st.total);
+ KEYS.textContent='RECHTS = CONFIRM · LINKS = REJECT · U = UNDO · KLICK/TIPP AUFS BILD = ZOOM';
+ V.innerHTML='<div class="stage" id="stage"></div>'+
+  '<div class="acts"><button data-v="Reject"><b>&#10005;</b>REJECT</button>'+
+  '<button class="cmt" id="btncmt"><b>&#9998;</b>NOTIZ</button>'+
+  '<button class="yes" data-v="Confirm"><b>&#10003;</b>CONFIRM</button></div>'+
+  '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; UNDO</button>'+
+  '<button id="rulesbtn">&#167; Artwork-Regeln</button></div>';
+ var stage=$('stage'),e=document.createElement('div');e.className='card';
+ e.innerHTML='<div class="photo"><img id="cardimg" src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
+  '<div class="meta"><div><div class="mid">'+esc(titleOf(a))+'</div><div class="msub">'+esc(subOf(a))+'</div></div></div>';
+ stage.appendChild(e);st.t0=Date.now();drag(e,a);
+ V.querySelectorAll('.acts button[data-v]').forEach(function(b){b.onclick=function(){act(b.dataset.v)}});
+ $('btncmt').onclick=commentSheet;
+ $('undo').onclick=undo;
+ $('rulesbtn').onclick=rulesSheet;
+ if(a.imageFull&&a.imageFull!==a.image){
+  var hi=new Image();hi.src=a.imageFull;
+  hi.onload=function(){var ci=e.querySelector('#cardimg');if(ci&&cur()===a)ci.src=a.imageFull};
+ }
+ [1,2].forEach(function(off){var nx=st.queue[st.idx+off];
+  if(nx&&nx.image){var p=new Image();p.src=nx.image}})}
+
+function drag(e,a){
+ var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
+ e.addEventListener('pointerdown',function(ev){
+  on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();dt=ev.target;
+  try{e.setPointerCapture(ev.pointerId)}catch(x){}e.style.transition='none'});
+ e.addEventListener('pointermove',function(ev){if(!on)return;dx=ev.clientX-sx;
+  if(Math.abs(dx)>6||Math.abs(ev.clientY-sy)>6)moved=true;
+  e.style.transform='translateX('+dx+'px) rotate('+dx/18+'deg)';
+  var v=dx>45?'Confirm':dx<-45?'Reject':null;
+  if(v){stp.textContent=ST[v][0];stp.style.color=ST[v][1];stp.style.borderColor=ST[v][1];
+   stp.style.opacity=Math.min(1,(Math.abs(dx)-45)/55)}else stp.style.opacity=0});
+ e.addEventListener('pointerup',function(ev){if(!on)return;on=false;
+  e.style.transition='transform .25s,opacity .25s';
+  var v=dx>90?'Confirm':dx<-90?'Reject':null;
+  if(v){fly(e,v);go(v)}
+  else{e.style.transform='';stp.style.opacity=0;
+   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a.imageFull||a.image)}
+  dx=0});
+ e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
+
+function fly(e,v){e.style.transform='translateX('+(v==='Confirm'?480:-480)+'px) rotate('+(v==='Confirm'?26:-26)+'deg)';e.style.opacity='0'}
+function act(v){if(V.querySelector('.sheet'))return;var c=V.querySelector('.card');
+ if(c){c.style.transition='transform .25s,opacity .25s';fly(c,v)}go(v)}
+function go(v){
+ var s=Math.round((Date.now()-st.t0)/1000);
+ if(v==='Confirm')commit({v:'Confirm',tags:[],s:s});
+ else{st.pend={s:s,tags:[]};sheet()}}
+
+// ---- Notiz-Sheet (Kommentar mit beliebigem Urteil) ----
+function commentSheet(){
+ if(V.querySelector('.sheet'))return;
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ var secs=Math.round((Date.now()-st.t0)/1000);
+ s.innerHTML='<h4>NOTIZ ZUM ARTWORK</h4><div class="hint">Die Notiz wird mit deinem Votum gespeichert. Substanzielle Notizen landen automatisch als Regel-Vorschlag im Artwork-Regelkatalog — so wächst das Design-Brain.</div>'+
+  '<textarea id="cmx" placeholder="Was fällt dir auf? Warum funktioniert das Artwork (nicht)?" style="width:100%;height:84px;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:9px;font-size:12px;font-family:inherit;resize:none"></textarea>'+
+  '<div class="row"><button id="cx">Abbrechen</button><button id="cfail">REJECT &rarr;</button><button id="cok" class="save" style="background:#16301C;border-color:#2F5F44;color:#9BE0B4" disabled>CONFIRM &#10003;</button></div>';
+ stage.appendChild(s);
+ var ta=s.querySelector('#cmx'),ok=s.querySelector('#cok');
+ ta.oninput=function(){ok.disabled=!ta.value.trim()};
+ ta.focus();
+ s.querySelector('#cx').onclick=function(){s.remove()};
+ s.querySelector('#cok').onclick=function(){var c=ta.value.trim();s.remove();
+  var card=stage.querySelector('.card');if(card){card.style.transition='transform .25s,opacity .25s';fly(card,'Confirm')}
+  commit({v:'Confirm',tags:[],s:secs,comment:c})};
+ s.querySelector('#cfail').onclick=function(){var c=ta.value.trim();s.remove();
+  st.pend={s:secs,tags:[],cm:c};sheet()};
+}
+
+// ---- Regeln-Ansicht ----
+var RULES_CACHE=null;
+function rulesSheet(){
+ if(V.querySelector('.sheet'))return;
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ s.innerHTML='<h4>ARTWORK-REGELN</h4><div class="hint">Fest = gilt. Vorschlag = wartet auf Vuven/Max (Status in Airtable setzen). Gespeist aus der Bestandsanalyse und euren Review-Notizen.</div>'+
+  '<div id="rlist" style="flex:1;overflow-y:auto">LADE …</div>'+
+  '<div class="row"><button id="rclose">Schließen</button></div>';
+ stage.appendChild(s);
+ s.querySelector('#rclose').onclick=function(){s.remove()};
+ function render(rs){
+  var order=['Motiv','Platzierung','Farbe','Produkt','Brand','Allgemein'];
+  var h='';
+  order.forEach(function(ax){
+   var list=rs.filter(function(r){return r.bereich===ax});
+   if(!list.length)return;
+   h+='<div class="sec">'+esc(ax.toUpperCase())+'</div>';
+   list.forEach(function(r){
+    h+='<div class="rul"><span class="st '+(r.status==='Fest'?'fest':'vor')+'">'+esc(r.status.toUpperCase())+'</span>'+esc(r.regel)+
+     (r.quelle?'<span class="q">'+esc(r.id)+' · '+esc(r.quelle)+'</span>':'')+'</div>'});
+  });
+  s.querySelector('#rlist').innerHTML=h||'Noch keine Regeln.';
+ }
+ if(RULES_CACHE)render(RULES_CACHE);
+ api('/rules').then(function(d){RULES_CACHE=d.rules;if(document.body.contains(s))render(d.rules)})
+  .catch(function(e){if(document.body.contains(s)&&!RULES_CACHE)s.querySelector('#rlist').innerHTML='Fehler: '+esc(e.message)});
+}
+
+// ---- Reject-Sheet (eine Tag-Liste, keine Achsen) ----
+function customTags(){try{return JSON.parse(localStorage.getItem('scar-tags')||'[]')}catch(e){return[]}}
+function rememberTag(t){var c=customTags();
+ if(c.indexOf(t)<0&&BASE_TAGS.indexOf(t)<0&&SERVER_TAGS.indexOf(t)<0){c.push(t);localStorage.setItem('scar-tags',JSON.stringify(c))}}
+function sheet(){
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ s.innerHTML='<h4>WARUM REJECT?</h4><div class="hint">Tags machen die Ablehnung auswertbar — daraus entstehen die Artwork-Regeln. Fehlt ein Grund? Unten als neuen Tag anlegen.</div>'+
+  '<div class="chips" id="fc"></div>'+
+  '<div class="newin"><input id="nt" placeholder="Eigener Grund als neuer Tag …"><button id="na">ANLEGEN</button></div>'+
+  '<div class="cmt"><input id="cm" placeholder="Optionale Notiz (1 Satz — wird Regel-Vorschlag)" value="'+esc(st.pend.cm||'')+'"></div>'+
+  '<div class="row"><button id="ca">Abbrechen</button><button id="sv" class="save" disabled>REJECT SPEICHERN</button></div>';
+ stage.appendChild(s);
+ var fc=s.querySelector('#fc'),sv=s.querySelector('#sv');
+ function chips(){
+  var all=[];
+  BASE_TAGS.concat(SERVER_TAGS).concat(customTags())
+   .forEach(function(t){if(t&&all.indexOf(t)<0)all.push(t)});
+  fc.innerHTML=all.map(function(t){
+   return '<button data-t="'+esc(t)+'"'+(st.pend.tags.indexOf(t)>=0?' class="on"':'')+'>'+esc(t)+'</button>'}).join('');
+  fc.querySelectorAll('button').forEach(function(b){b.onclick=function(){
+   var t=b.dataset.t,k=st.pend.tags.indexOf(t);
+   if(k<0){st.pend.tags.push(t);b.classList.add('on')}else{st.pend.tags.splice(k,1);b.classList.remove('on')}
+   sv.disabled=!st.pend.tags.length}})}
+ chips();
+ s.querySelector('#na').onclick=function(){
+  var v=s.querySelector('#nt').value.trim();if(!v)return;
+  rememberTag(v);
+  if(st.pend.tags.indexOf(v)<0)st.pend.tags.push(v);
+  s.querySelector('#nt').value='';sv.disabled=false;chips()};
+ s.querySelector('#nt').onkeydown=function(e){if(e.key==='Enter')s.querySelector('#na').click()};
+ s.querySelector('#ca').onclick=function(){st.pend=null;card()};
+ sv.onclick=function(){var p=st.pend;st.pend=null;
+  var comment=(s.querySelector('#cm')||{value:''}).value;
+  var c=stage.querySelector('.card');if(c){c.style.transition='transform .25s,opacity .25s';fly(c,'Reject')}
+  s.remove();commit({v:'Reject',tags:p.tags,s:p.s,comment:comment})}}
+
+// ---- Speichern + Undo ----
+function commit(r){
+ var a=cur();if(!a)return;
+ var body={recordId:a.recordId,reviewer:st.reviewer,
+  verdict:r.v,tags:r.tags,comment:(r.comment||'').trim(),seconds:r.s,session:st.session};
+ var p=api('/review',{method:'POST',body:JSON.stringify(body)}).then(function(res){
+  if(res&&res.result==='Konflikt'){
+   toast('⚡ Uneinig mit '+(st.reviewer==='Vuven'?'Max':'Vuven')+' — Artwork liegt in KONFLIKTE');
+   api('/conflicts').then(function(d){st.conflicts=d.conflicts||[];setBadge(st.conflicts.length)}).catch(function(){})}
+  else if(res&&res.result==='Confirmed')toast('✓ Beide Yes — Artwork geht weiter Richtung Kauf (Robert)');
+  else if(res&&res.result==='Rejected')toast('✕ Beide No — Artwork aussortiert');
+  return res
+ }).catch(function(e){
+  toast('Speichern fehlgeschlagen: '+titleOf(a)+' — beim nächsten Laden wieder in der Queue');return null});
+ st.hist.push({a:a,v:r.v,p:p});
+ st.idx++;setTimeout(card,180)}
+function undo(){
+ if(!st.hist.length||st.busy)return;
+ st.busy=true;
+ var h=st.hist.pop();
+ h.p.then(function(res){
+  if(res&&res.reviewId)return api('/unreview',{method:'POST',
+   body:JSON.stringify({reviewId:res.reviewId,recordId:h.a.recordId})});
+ }).then(function(){st.busy=false;st.idx--;st.pend=null;
+  api('/conflicts').then(function(d){st.conflicts=d.conflicts||[];setBadge(st.conflicts.length)}).catch(function(){});
+  card()})
+  .catch(function(){st.busy=false;st.hist.push(h);toast('Zurücknehmen fehlgeschlagen')})}
+
+// ---- Konflikte-Ansicht ----
+function conflictsView(){
+ bar(0,'KONFLIKTE','');KEYS.textContent='';
+ V.innerHTML='<div class="loadbox">LADE KONFLIKTE …</div>';
+ api('/conflicts').then(function(d){
+  st.conflicts=d.conflicts||[];setBadge(st.conflicts.length);
+  if(!st.conflicts.length){
+   V.innerHTML='<div class="body"><h4>KEINE KONFLIKTE</h4><div class="hint">Ihr seid euch bei allen beidseitig bewerteten Artworks einig. Stark.</div></div>';
+   return}
+  var h='<div class="body"><h4>KONFLIKTE ('+st.conflicts.length+')</h4>'+
+   '<div class="hint">Vuven und Max sind uneins. Kurz besprechen, dann hier die gemeinsame Entscheidung setzen — die Klärungs-Notiz landet in den Feedback-Notes und als Regel-Vorschlag.</div>';
+  st.conflicts.forEach(function(c,i){
+   var votes=(c.reviews||[]).map(function(r){
+    return '<div class="vote"><b>'+esc(r.reviewer.toUpperCase())+'</b> '+
+     '<span class="vc '+(r.verdict==='Confirm'?'ok':'no')+'">'+(r.verdict==='Confirm'?'✓ CONFIRM':'✕ REJECT')+'</span>'+
+     ((r.tags&&r.tags.length)?' — '+esc(r.tags.join(', ')):'')+
+     (r.comment?'<br>„'+esc(r.comment)+'“':'')+'</div>'}).join('');
+   h+='<div class="conf" data-i="'+i+'"><div class="ctop">'+
+    '<img src="'+esc(c.image||'')+'" data-full="'+esc(c.imageFull||c.image||'')+'" alt="">'+
+    '<div style="flex:1;min-width:0"><div class="ct">'+esc(titleOf(c))+'</div>'+
+    '<div class="msub">'+esc(subOf(c))+'</div>'+votes+'</div></div>'+
+    '<input class="cin" placeholder="Klärungs-Notiz (optional — wird Regel-Vorschlag)">'+
+    '<div class="crow"><button class="cok">✓ FINAL: YES</button><button class="cno">✕ FINAL: NO</button></div></div>'});
+  h+='</div>';
+  V.innerHTML=h;
+  V.querySelectorAll('.conf img').forEach(function(im){im.onclick=function(){openViewer(im.dataset.full||im.src)}});
+  V.querySelectorAll('.conf').forEach(function(el){
+   var c=st.conflicts[parseInt(el.dataset.i,10)];
+   function resolve(verdict){
+    if(st.busy)return;st.busy=true;
+    var note=el.querySelector('.cin').value.trim();
+    el.style.opacity='.4';
+    api('/resolve',{method:'POST',body:JSON.stringify({recordId:c.recordId,verdict:verdict,comment:note})})
+     .then(function(){st.busy=false;toast(verdict==='Confirm'?'✓ Geklärt: beide Yes':'✕ Geklärt: beide No');conflictsView()})
+     .catch(function(e){st.busy=false;el.style.opacity='1';toast('Fehler: '+e.message)})}
+   el.querySelector('.cok').onclick=function(){resolve('Confirm')};
+   el.querySelector('.cno').onclick=function(){resolve('Reject')}})
+ }).catch(function(e){V.innerHTML='<div class="loadbox">FEHLER: '+esc(e.message)+'</div>'})}
+
+// ---- Summary ----
+function summary(){
+ bar(100,'FERTIG','');KEYS.textContent='';
+ var n=st.hist.length,ok=st.hist.filter(function(h){return h.v==='Confirm'}).length;
+ var h='<div class="body"><h4>ALLES REVIEWED</h4>'+
+  '<div class="hint">Keine offenen Artworks für '+esc(st.reviewer)+'.</div>';
+ if(n){h+='<div class="tiles"><div class="tile"><b>'+ok+'</b><span>CONFIRM</span></div>'+
+  '<div class="tile"><b>'+(n-ok)+'</b><span>REJECT</span></div>'+
+  '<div class="tile"><b>'+Math.round(ok/n*100)+'%</b><span>QUOTE</span></div></div>';
+ }
+ h+='<div class="foot">&rarr; Votes liegen in Airtable (SCA PRODUCT-LAB · Artwork Reviews)<br>'+
+  '&rarr; Einigkeit setzt den Variant Status automatisch (survey / rejected)<br>'+
+  '&rarr; Uneinigkeit landet im Tab KONFLIKTE<br>'+
+  '&rarr; Neue Artworks aus dem Ranking-View erscheinen hier automatisch</div></div>';
+ V.innerHTML=h}
+
+// ---- Tastatur ----
+document.addEventListener('keydown',function(e){
+ if(st.view!=='queue'||!st.queue.length||V.querySelector('.sheet')||/INPUT|TEXTAREA/.test(e.target.tagName))return;
+ if($('viewer').classList.contains('open')){if(e.key==='Escape')closeViewer();return}
+ if(!cur())return;
+ if(e.key==='ArrowRight'){e.preventDefault();act('Confirm')}
+ else if(e.key==='ArrowLeft'){e.preventDefault();act('Reject')}
+ else if(e.key==='u'||e.key==='U')undo()});
+
+// ---- Vollbild-Zoom ----
+var vz={scale:1,x:0,y:0,natW:0,natH:0,min:1};
+function openViewer(src){
+ var img=$('viewerimg');img.src=src;
+ $('viewer').classList.add('open');
+ img.onload=function(){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()};
+ if(img.complete&&img.naturalWidth){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()}}
+function closeViewer(){$('viewer').classList.remove('open')}
+function fitV(){var vw=innerWidth,vh=innerHeight;
+ vz.min=Math.min(vw/vz.natW,vh/vz.natH);vz.scale=vz.min;
+ vz.x=(vw-vz.natW*vz.scale)/2;vz.y=(vh-vz.natH*vz.scale)/2;applyV()}
+function applyV(){$('viewerimg').style.transform='translate('+vz.x+'px,'+vz.y+'px) scale('+vz.scale+')'}
+function clampV(){var vw=innerWidth,vh=innerHeight,w=vz.natW*vz.scale,h=vz.natH*vz.scale;
+ vz.x=w<=vw?(vw-w)/2:Math.min(0,Math.max(vw-w,vz.x));
+ vz.y=h<=vh?(vh-h)/2:Math.min(0,Math.max(vh-h,vz.y))}
+function zoomAt(cx,cy,f){var ns=Math.min(Math.max(vz.scale*f,vz.min),vz.min*8);
+ vz.x=cx-(cx-vz.x)*(ns/vz.scale);vz.y=cy-(cy-vz.y)*(ns/vz.scale);vz.scale=ns;clampV();applyV()}
+$('viewerclose').onclick=closeViewer;
+(function(){
+ var v=$('viewer'),pts=new Map(),ld=0,lt=0,drg=false,lx=0,ly=0;
+ v.addEventListener('pointerdown',function(e){
+  if(e.target.id==='viewerclose')return;
+  v.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===1){drg=true;lx=e.clientX;ly=e.clientY;
+   var now=Date.now();
+   if(now-lt<280){if(vz.scale>vz.min*1.05)fitV();else zoomAt(e.clientX,e.clientY,3);lt=0}else lt=now}
+  else if(pts.size===2){var a=Array.from(pts.values());ld=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
+ v.addEventListener('pointermove',function(e){
+  if(!pts.has(e.pointerId))return;
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pts.size===2){var a=Array.from(pts.values());
+   var d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),cx=(a[0].x+a[1].x)/2,cy=(a[0].y+a[1].y)/2;
+   if(ld>0)zoomAt(cx,cy,d/ld);ld=d}
+  else if(drg&&pts.size===1){vz.x+=e.clientX-lx;vz.y+=e.clientY-ly;lx=e.clientX;ly=e.clientY;clampV();applyV()}});
+ function up(e){pts.delete(e.pointerId);if(pts.size<2)ld=0;if(!pts.size)drg=false}
+ v.addEventListener('pointerup',up);v.addEventListener('pointercancel',up);
+ v.addEventListener('wheel',function(e){e.preventDefault();zoomAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15)},{passive:false});
+})();
+
+// ---- Start ----
+viewsw();
+pill();
+if(initKey())load();
+})();
+</script>
+</body>
+</html>
