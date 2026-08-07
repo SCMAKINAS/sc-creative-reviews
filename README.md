@@ -27,7 +27,8 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 
 | Datei | Zweck |
 |---|---|
-| `index.html` | Die komplette Review-App (Single File, keine Build-Schritte) |
+| `index.html` | Die komplette Review-App Marketing-Creatives (Single File, keine Build-Schritte) |
+| `sketches/index.html` | Sketch-Review-App fürs Design-Team (Vuven & Max) — eigene Seite, gleiche Edge Function (`?format=sketches`) |
 | `creative-review-function.ts` | Quellcode der Supabase Edge Function (Referenz/Versionierung — deployt wird über Supabase, nicht von hier) |
 | `README.md` | Diese Doku |
 
@@ -95,6 +96,24 @@ Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 
 **Handy-Push bei neuen Batches:** Nach jedem Sync mit neuen Assets schickt die Function eine Push-Notification über ntfy.sh („Shooting-Assets: 161 neu im Review", Tap öffnet die App). Reviewer abonnieren einmalig das geheime Topic in der ntfy-App (Topic-Name steht in `app_config`, Key `ntfy_topic` — per SQL rotierbar, falls er leakt). Der Link in der Notification enthält bewusst KEINEN Review-Key.
 
+## Sketch Review (Design-Team) — `?format=sketches`
+
+Zweite App auf derselben Edge Function: Produktdesign-Sketches statt Marketing-Creatives. **Kein Figma-Sync** — die Sketches liegen bereits in Airtable (SCA PRODUCT-LAB, Tabelle „Sketches", gepflegt von Caro). App-URL: `https://scmakinas.github.io/sc-creative-reviews/sketches/` (+`?key=` wie gehabt, gleicher REVIEW_KEY, gleicher localStorage-Key).
+
+**Entscheider-Modell (anders als bei den Creatives):** Vuven und Max sind **gleichberechtigt** und voten blind (keiner sieht das Votum des anderen vor dem eigenen).
+
+| Konstellation | Wirkung in Airtable |
+|---|---|
+| Beide **Confirm** | `App Review Ergebnis` = Confirmed, `Variant Status` → **survey** (nur wenn noch leer — Caro kann manuell vorgreifen; „directly 🚀" bleibt eine manuelle Entscheidung außerhalb der App) |
+| Beide **Reject** | Ergebnis = Rejected, `Variant Status` → **rejected** |
+| Uneins | Ergebnis = **Konflikt**, Status bleibt unberührt. Tab KONFLIKTE in der App zeigt beide Votes; `POST /resolve` schreibt die Einigung (+ Klärungs-Notiz in „Variant Feedback Notes by Max and Vuven") |
+
+**Queue-Definition:** Sketch hat Bild + `Variant Status` leer + eigener App-Vote leer. Neue Sketches von Caro erscheinen damit automatisch — kein Sync, kein Cron.
+
+**Learnings/Design-Brain:** Jede Notiz > 3 Zeichen (bei Confirm, Reject oder Konflikt-Klärung) wird automatisch Regel-Vorschlag `SKR-xx` in der Tabelle „Sketch Rules" (Status „Vorschlag" — Vuven/Max bestätigen/verwerfen per Status-Feld in Airtable). Reject-Tags landen als Select-Optionen in „Sketch Reviews" und stehen via `GET /failtags?format=sketches` allen Geräten zur Verfügung.
+
+**Routen (alle mit `?format=sketches`):** `GET /queue?reviewer=Vuven|Max` · `POST /review` `{recordId,reviewer,verdict:Confirm|Reject,tags?,comment?,seconds?,session?}` · `POST /unreview` `{reviewId}` · `GET /conflicts` · `POST /resolve` `{recordId,verdict,comment?}` · `GET /rules` · `GET /failtags` · `GET /probe` (prüft PAT-Zugriff + Queue-Stände). Sync/Layout/Baseline existieren für sketches bewusst nicht.
+
 ## Bekannte Stolperfallen
 
 - **Figma-Rate-Limit (429) gilt pro Figma-USER, nicht pro Token** — ein zweiter Token desselben Accounts hilft nicht. Seit 06.08.2026 lädt der Sync nur noch den „Creative Review"-Teilbaum (~128 KB) statt des Full-Files (~50 MB); das Budget hält damit locker. Bei 429 trotzdem: nicht hämmern, 10–15 Min warten, erneut. Bild-Renders (`images/…`) sind teurer als der Node-Fetch — bei großen Importen synct man in Häppchen (`?limit=40`).
@@ -106,6 +125,8 @@ Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 
 - Statics-Base `appKktIMvTU1AqOEN` — Models `tblRUZ99u9ApeOdMu`, Expressions `tbl1RQkCERHpz8Nug`, Depictions `tbly4pX6YMtAfHYyz`, Assets `tbl2rpHgH2D0hebQ4`, Reviews `tbltxjO4jLxWbqTRy`, Regeln `tblZIQ6vTEQGwD2fn`
 - Memes-Base `appW9B8mQaT7krmg2` — Assets `tblQIYC1QRsU9Xp1r`, Reviews `tblHCqfdQ6OzHHCdi`
+- Branding-Base `appPaEX5g0qOOz5L4` — Assets `tblN6h6bLwkaGWsUo`, Reviews `tblXNaFF8fy5xdugq`
+- **Sketches:** SCA PRODUCT-LAB `appJr0gEyT3BUVr0A` — Sketches `tbl7RrV9rtGqM0zgb` (+ App-Spalten „App Review Vuven/Max/Ergebnis/Datum"), Sketch Reviews `tblByFgL2zJbJG3cP`, Sketch Rules `tblgRflphUBCOOt4o`. **Der `AIRTABLE_PAT` in Supabase muss diese Base einschließen!**
 - Figma-Board `pPSeVQKzDjuHv3Gf8wDp3u`, Review-Bereich Node `3156:787` („Creative Review")
 
 Die Fail-Tag-Vorschläge in der App basieren auf Max' Original-Feedback (Gruppen-DM Jonas/Max/Flo, Static-Reviews 27.07. + 31.07.2026) und dem Visual Direction Sheet V2.1.
