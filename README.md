@@ -42,8 +42,11 @@ Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), 
 | statics | „AI Shooting Assets for Approval" | `appKktIMvTU1AqOEN` | Ausdruck / Model / Produktdarstellung | AST |
 | memes | „Memes" (unter „Social Media Content for Approval") | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
 | branding | „Branding Shots" (unter „Social Media Content for Approval") | `appPaEX5g0qOOz5L4` | Vibe / Brand / Umsetzung | BRD |
+| postcards | „Post Card Campaign" (unter „Brand Campaign Activations") | TBD — Base-Duplikat ausstehend | Vibe / Brand / Umsetzung | PCD |
 
 Die Bereichs-Erkennung ist geometrisch: Jedes Bild gehört zur **nächstgelegenen Überschrift seiner Zeile** (Bilder dürfen auch links der Überschrift beginnen — Model-Kartei neben den Statics, Social-Spalten nebeneinander); untere Grenze ist die nächste Überschriften-Zeile darunter. Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift. Social-Zeile aktuell: „Memes" · „Band photos" · „Branding Shots".
+
+**Postcards-Besonderheit (Vorder-/Rückseite):** Board-Konvention im Bereich „Post Card Campaign": pro räumlicher Gruppe liegt die **obere Reihe = Vorderseiten**, die **untere Reihe = Rückseiten**. Der Sync legt nur Fronts als Assets an und hängt die Rückseiten der Gruppe als Attachment-Feld **„Back Preview"** an jedes Front-Asset (räumlich nächste zuerst). Die App zeigt auf der Karte links unten einen **RÜCKSEITE-Toggle** (Front → Back 1 → Back 2 → Front); Postcard-Karten rendern mit `object-fit: contain` (Querformat komplett sichtbar). First trial — bewusst rudimentär.
 
 **Neues Format hinzufügen:** Bereich mit großer Überschrift in Figma anlegen (im „Creative Review"-Node) → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern. (Für „Band photos" und „Branding Shots" sind die Board-Überschriften schon da.)
 

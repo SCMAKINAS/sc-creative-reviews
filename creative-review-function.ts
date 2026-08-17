@@ -1,7 +1,7 @@
 // Stay Cold · Creative Review — Figma Board -> Airtable, multi-format
 // Auth: eigener Header x-review-key (deshalb verify_jwt=false).
 //
-// Formate (?format=statics|memes|branding, Default statics): eigener Board-Bereich,
+// Formate (?format=statics|memes|branding|postcards, Default statics): eigener Board-Bereich,
 // eigene Airtable-Base, eigene Review-Achsen. Siehe FORMATS unten.
 //
 // ROUTEN
@@ -36,7 +36,10 @@
 //   GET  /failtags?format=artworks  bekannte Feedback-Tags
 //   GET  /probe?format=artworks     Airtable-Zugriff + Queue-Staende pruefen
 //   POST /notify?format=artworks    ntfy-Push "X Artworks offen" {message?}
-//                                   (ruft der Import-Prozess nach dem Einspielen)
+//                                   (ruft der Import-Prozess nach dem Einspielen;
+//                                   Topic: app_config.ntfy_topic_artworks)
+//   POST /addrule?format=artworks   Regel-Vorschlag programmatisch anlegen
+//                                   {regel, quelle?, bereich?, notizen?}
 
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
 // Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
@@ -72,6 +75,16 @@ const FORMATS: Record<string, Fmt> = {
     column: ["branding shots", "branding"],
     axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
     prefix: "BRD", label: "Branding Shots",
+  },
+  postcards: {
+    // TBD_POSTCARDS: Base-IDs nach Anlage eintragen (Duplikat der Branding-
+    // Base "Creative Review — Postcards" + Attachment-Feld "Back Preview" in
+    // Assets; PAT um die Base erweitern!). First trial (Brand Campaign
+    // Activations > Post Card Campaign) — bewusst rudimentaer.
+    base: "appTBD_POSTCARDS", assets: "tblTBD_ASSETS", reviews: "tblTBD_REVIEWS",
+    column: ["post card campaign", "postcard"],
+    axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
+    prefix: "PCD", label: "Postcards",
   },
 };
 function fmtOf(req: Request): (Fmt & { key: string }) | null {
@@ -188,10 +201,17 @@ async function baselineIds(): Promise<Set<string>> {
 // unterscheiden die Quelle). JSON-Publish, weil Umlaute nicht in HTTP-Header
 // duerfen. Ein Notification-Fehler darf den Flow NIE brechen. Kein Review-Key
 // im Link — das Topic ist geheim, aber unauthentifiziert!
-async function notify(message: string, opts: { title?: string; click?: string; tags?: string[] } = {}) {
+async function notify(message: string, opts: { title?: string; click?: string; tags?: string[]; topicKey?: string } = {}) {
   try {
-    const rows = await pg("app_config?key=eq.ntfy_topic&select=value");
-    const topic = rows?.[0]?.value;
+    // Eigene Topics pro App moeglich (z.B. ntfy_topic_artworks — Vuven bekommt
+    // NUR Artwork-Pings). Fehlt der spezifische Key, Fallback aufs Haupt-Topic.
+    const key = opts.topicKey ?? "ntfy_topic";
+    let rows = await pg(`app_config?key=eq.${key}&select=value`);
+    let topic = rows?.[0]?.value;
+    if (!topic && key !== "ntfy_topic") {
+      rows = await pg("app_config?key=eq.ntfy_topic&select=value");
+      topic = rows?.[0]?.value;
+    }
     if (!topic) return;
     await fetch("https://ntfy.sh", {
       method: "POST",
@@ -382,6 +402,26 @@ async function sync(req: Request) {
     Math.min(...a.nodes.map((n) => n.y)) - Math.min(...b.nodes.map((n) => n.y)));
   mark(`grouped: ${inCol.length} images -> ${named.length} sections + ${spatial.length} spatial (gap ${Math.round(gap)})`);
 
+  // Postcards-Konvention (Board): pro raeumlicher Gruppe obere Reihe =
+  // Vorderseiten, untere Reihe = Rueckseiten. Nur Fronts werden Assets;
+  // die Gruppen-Backs haengen als "Back Preview" an jedem Front-Asset
+  // (raeumlich naechstes zuerst — Rueckseite ist im Review sekundaer).
+  const backsByGroup = new Map<number, N[]>();
+  if (f.key === "postcards") {
+    groups.forEach((g, gi) => {
+      const ys = g.nodes.map((n) => n.y);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      if (maxY - minY < (g.nodes[0]?.h ?? 100) * 0.5) return; // nur eine Reihe
+      const split = minY + (maxY - minY) / 2;
+      const backs = g.nodes.filter((n) => n.y > split);
+      if (backs.length && backs.length < g.nodes.length) {
+        backsByGroup.set(gi, backs);
+        g.nodes = g.nodes.filter((n) => n.y <= split);
+      }
+    });
+    mark(`postcards: ${[...backsByGroup.values()].flat().length} backs in ${backsByGroup.size} groups`);
+  }
+
   const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
   mark(`airtable existing: ${existing.length} assets`);
   const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
@@ -408,7 +448,7 @@ async function sync(req: Request) {
         if (rows.length >= limit) { remaining++; return; }
         wanted.push(n.id);
         rows.push({
-          node: n.id,
+          node: n.id, gi, cx: n.x + n.w / 2,
           fields: {
             "Asset ID": `${f.prefix}-${String(++seq).padStart(4, "0")}`,
             "Figma Node ID": n.id,
@@ -425,6 +465,13 @@ async function sync(req: Request) {
   });
   if (!rows.length) return json({ created: 0, remaining, clusters: groups.length, note: "Nichts Neues." });
 
+  // Rueckseiten der betroffenen Gruppen mitrendern (werden KEINE eigenen Assets).
+  if (backsByGroup.size) {
+    const backIds = new Set<string>();
+    for (const r of rows) for (const n of backsByGroup.get(r.gi) ?? []) backIds.add(n.id);
+    wanted.push(...backIds);
+  }
+
   // Renders in Haeppchen, sonst wird die URL zu lang.
   const urls: Record<string, string> = {};
   for (let i = 0; i < wanted.length; i += 40) {
@@ -435,7 +482,15 @@ async function sync(req: Request) {
   }
   const payload = rows.map((r) => {
     const u = urls[r.node];
-    return { fields: { ...r.fields, ...(u ? { Preview: [{ url: u }] } : {}) } };
+    const backs = (backsByGroup.get(r.gi) ?? [])
+      .slice()
+      .sort((a, b) => Math.abs(a.x + a.w / 2 - r.cx) - Math.abs(b.x + b.w / 2 - r.cx))
+      .map((n) => urls[n.id]).filter(Boolean).map((u2) => ({ url: u2 }));
+    return { fields: {
+      ...r.fields,
+      ...(u ? { Preview: [{ url: u }] } : {}),
+      ...(backs.length ? { "Back Preview": backs } : {}),
+    } };
   });
 
   const made = await atCreate(f.base, f.assets, payload);
@@ -550,6 +605,9 @@ async function queue(req: Request) {
       image: r.fields["Preview"]?.[0]?.thumbnails?.large?.url ?? r.fields["Preview"]?.[0]?.url ?? null,
       imageFull: r.fields["Preview"]?.[0]?.url ?? null,
       figma: r.fields["Figma Link"] ?? null,
+      // Postcards: Rueckseiten der Gruppe (naechste zuerst); leer bei anderen Formaten.
+      backImages: (r.fields["Back Preview"] ?? []).map((a: any) => a?.thumbnails?.large?.url ?? a?.url).filter(Boolean),
+      backImagesFull: (r.fields["Back Preview"] ?? []).map((a: any) => a?.url).filter(Boolean),
     })),
   });
 }
@@ -922,7 +980,7 @@ async function skReview(req: Request) {
   return json({ ok: true, reviewId: rec[0].id, result, ...(ruleId ? { ruleProposal: ruleId } : {}) });
 }
 
-async function skAddRule(text: string, quelle: string): Promise<string> {
+async function skAddRule(text: string, quelle: string, bereich = "Allgemein", notizen = ""): Promise<string> {
   const rules = await atAll(SK.base, SK.rules, "fields[]=Rule%20ID");
   const seq = rules.reduce((m, r) => {
     const n = parseInt(String(r.fields["Rule ID"] ?? "").split("-")[1] ?? "0", 10);
@@ -932,9 +990,10 @@ async function skAddRule(text: string, quelle: string): Promise<string> {
   await atCreate(SK.base, SK.rules, [{ fields: {
     "Rule ID": id,
     Regel: text,
-    Bereich: "Allgemein",
+    Bereich: bereich,
     Status: "Vorschlag",
     Quelle: quelle,
+    ...(notizen ? { Notizen: notizen } : {}),
     Erstellt: new Date().toISOString().slice(0, 10),
   } }]);
   return id;
@@ -1086,8 +1145,23 @@ async function skNotifyQueue(req: Request) {
     title: "Artwork Review",
     click: "https://scmakinas.github.io/sc-creative-reviews/artworks/",
     tags: ["art"],
+    topicKey: "ntfy_topic_artworks",
   });
   return json({ notified: true, queue: { Vuven: qV, Max: qM } });
+}
+
+// Programmatischer Regel-Vorschlag (z.B. aus anderen Claude-Sessions /
+// Analysen): {regel, quelle?, bereich?, notizen?} -> SKR-xx, Status "Vorschlag".
+async function skAddRuleRoute(req: Request) {
+  const b = await req.json().catch(() => ({}));
+  if (!String(b?.regel ?? "").trim()) return json({ error: "regel fehlt" }, 400);
+  const id = await skAddRule(
+    String(b.regel).trim(),
+    String(b.quelle ?? "").trim() || "Manuell via /addrule",
+    String(b.bereich ?? "").trim() || "Allgemein",
+    String(b.notizen ?? "").trim(),
+  );
+  return json({ ok: true, ruleId: id });
 }
 
 // Diagnose: prueft den Airtable-Zugriff (PAT!) und liefert Queue-Staende.
@@ -1140,6 +1214,7 @@ Deno.serve(async (req) => {
       if (route === "failtags") return await skFailtags();
       if (route === "probe") return await skProbe();
       if (route === "notify" && req.method === "POST") return await skNotifyQueue(req);
+      if (route === "addrule" && req.method === "POST") return await skAddRuleRoute(req);
       return json({ error: `Route /${route} gibt es fuer format=artworks nicht (kein Figma-Sync).` }, 400);
     }
     if (route === "sync" && req.method === "POST") return await sync(req);

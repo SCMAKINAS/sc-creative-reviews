@@ -38,6 +38,10 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0;cursor:zoom-in}
 .photo img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
 .photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
+.photo .backbtn{position:absolute;left:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone);padding:4px 8px;border-radius:3px;z-index:3;cursor:pointer}
+.photo .backbtn.on{background:var(--blood);border-color:var(--blood);color:#fff}
+.card.pc .photo{background:#141414}
+.card.pc .photo img{object-fit:contain}
 .stamp{position:absolute;top:26%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:24px;letter-spacing:.1em;padding:6px 14px;border:4px solid;border-radius:7px;opacity:0;z-index:3;pointer-events:none;white-space:nowrap}
 .meta{padding:9px 12px 11px;border-top:1px solid var(--line);background:#141414;display:flex;align-items:center;gap:8px}
 .mid{font-family:'Oswald','Arial Narrow',sans-serif;font-size:14px;letter-spacing:.09em}
@@ -110,7 +114,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
         <button data-r="Claude" data-role="Shadow">CLAUDE<small>AI-SHADOW</small></button>
       </div>
     </div>
-    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">SHOOTING</button><button data-f="memes">MEMES</button><button data-f="branding">BRANDING</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
+    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">SHOOTING</button><button data-f="memes">MEMES</button><button data-f="branding">BRANDING</button><button data-f="postcards">POSTCARDS</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
     <div id="view"></div>
   </div>
   <div class="keys" id="keys"></div>
@@ -145,7 +149,11 @@ var FMT={
  branding:{label:'BRANDING',axes:['Vibe','Brand','Umsetzung'],fail:{
   Vibe:['Kein Mood','Zu soft','Zu gestellt','Stock-Look','Falsche Energie'],
   Brand:['Nicht Stay Cold','Logo fehlt/unkenntlich','Zu clean','Zu Mainstream','Farbwelt off'],
-  Umsetzung:['AI-Artefakte','Licht off','Unscharf/Matschig','Crop ungünstig','Komposition wirr']}}};
+  Umsetzung:['AI-Artefakte','Licht off','Unscharf/Matschig','Crop ungünstig','Komposition wirr']}},
+ postcards:{label:'POSTCARDS',axes:['Vibe','Brand','Umsetzung'],fail:{
+  Vibe:['Claim zieht nicht','Motiv zu schwach','Kein Scroll-Stop im Briefkasten','Zu brav — kein Edge','Zu gestellt','Falsche Energie'],
+  Brand:['Nicht Stay Cold','Logo fehlt/unkenntlich','Zu Mainstream','Farbwelt off','Claim passt nicht zur Marke'],
+  Umsetzung:['Text schlecht lesbar','Layout unruhig','Druck/Rand/Auflösung','AI-Artefakte','Gutschein/QR-Platzierung','Front & Rückseite passen nicht zusammen']}}};
 function cfg(){return FMT[st.format]||FMT.statics}
 
 var SERVER_TAGS={};
@@ -229,7 +237,8 @@ function card(){
   '<button class="yes" data-v="Passt"><b>&#10003;</b>CONFIRM — ALLES</button></div>'+
   '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; UNDO</button>'+
   '<button id="rulesbtn">&#167; Creative-Regeln</button></div>';
- var stage=$('stage'),e=document.createElement('div');e.className='card';
+ var stage=$('stage'),e=document.createElement('div');e.className='card'+(st.format==='postcards'?' pc':'');
+ e.dataset.side='0';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
  e.innerHTML='<div class="photo"><img id="cardimg" src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
   '<div class="meta"><div><div class="mid">'+esc(a.id)+'</div><div class="msub">'+esc(sub)+'</div></div>'+
@@ -239,10 +248,26 @@ function card(){
  $('btncmt').onclick=commentSheet;
  $('undo').onclick=undo;
  $('rulesbtn').onclick=rulesSheet;
+ // Postkarten: Vorder-/Rueckseiten-Toggle (Rueckseite sekundaer). Der Button
+ // schaltet Front -> Back 1 -> (Back 2) -> Front; Zoom zeigt die aktive Seite.
+ if(a.backImages&&a.backImages.length){
+  var n=a.backImages.length,bb=document.createElement('button');bb.className='backbtn';
+  var lbl=function(side){return side===0?('RÜCKSEITE'+(n>1?' 1/'+n:'')):(side<n?'RÜCKSEITE '+(side+1)+'/'+n:'VORDERSEITE')};
+  bb.textContent=lbl(0);
+  e.querySelector('.photo').appendChild(bb);
+  bb.addEventListener('pointerdown',function(ev){ev.stopPropagation()});
+  bb.onclick=function(ev){ev.stopPropagation();
+   var side=(parseInt(e.dataset.side||'0',10)+1)%(n+1);
+   e.dataset.side=String(side);
+   var ci=e.querySelector('#cardimg');
+   if(side===0){ci.src=a.imageFull||a.image;a._zoomSrc=null;bb.classList.remove('on')}
+   else{ci.src=a.backImages[side-1];a._zoomSrc=(a.backImagesFull&&a.backImagesFull[side-1])||a.backImages[side-1];bb.classList.add('on')}
+   bb.textContent=lbl(side)};
+ }
  // Volle Aufloesung im Hintergrund nachladen und unbemerkt einwechseln
  if(a.imageFull&&a.imageFull!==a.image){
   var hi=new Image();hi.src=a.imageFull;
-  hi.onload=function(){var ci=e.querySelector('#cardimg');if(ci&&cur()===a)ci.src=a.imageFull};
+  hi.onload=function(){var ci=e.querySelector('#cardimg');if(ci&&cur()===a&&e.dataset.side==='0')ci.src=a.imageFull};
  }
  // Naechste zwei Karten vorladen (Thumbs)
  [1,2].forEach(function(off){var nx=st.queue[st.idx+off];
@@ -265,7 +290,7 @@ function drag(e,a){
   var v=dx>90?'Passt':dx<-90?'Abweichung':null;
   if(v){fly(e,v);go(v)}
   else{e.style.transform='';stp.style.opacity=0;
-   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a.imageFull||a.image)}
+   if(!moved&&Date.now()-pt0<600&&dt&&dt.closest('.photo'))openViewer(a._zoomSrc||a.imageFull||a.image)}
   dx=0});
  e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
 
