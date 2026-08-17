@@ -77,11 +77,10 @@ const FORMATS: Record<string, Fmt> = {
     prefix: "BRD", label: "Branding Shots",
   },
   postcards: {
-    // TBD_POSTCARDS: Base-IDs nach Anlage eintragen (Duplikat der Branding-
-    // Base "Creative Review — Postcards" + Attachment-Feld "Back Preview" in
-    // Assets; PAT um die Base erweitern!). First trial (Brand Campaign
-    // Activations > Post Card Campaign) — bewusst rudimentaer.
-    base: "appTBD_POSTCARDS", assets: "tblTBD_ASSETS", reviews: "tblTBD_REVIEWS",
+    // Base = Duplikat der Branding-Base ("Creative Review — Postcards",
+    // + Attachment-Feld "Back Preview" in Assets). First trial (Brand
+    // Campaign Activations > Post Card Campaign) — bewusst rudimentaer.
+    base: "appy3ipkgyDgyrHMJ", assets: "tblN6h6bLwkaGWsUo", reviews: "tblXNaFF8fy5xdugq",
     column: ["post card campaign", "postcard"],
     axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
     prefix: "PCD", label: "Postcards",

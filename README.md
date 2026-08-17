@@ -42,7 +42,7 @@ Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), 
 | statics | „AI Shooting Assets for Approval" | `appKktIMvTU1AqOEN` | Ausdruck / Model / Produktdarstellung | AST |
 | memes | „Memes" (unter „Social Media Content for Approval") | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
 | branding | „Branding Shots" (unter „Social Media Content for Approval") | `appPaEX5g0qOOz5L4` | Vibe / Brand / Umsetzung | BRD |
-| postcards | „Post Card Campaign" (unter „Brand Campaign Activations") | TBD — Base-Duplikat ausstehend | Vibe / Brand / Umsetzung | PCD |
+| postcards | „Post Card Campaign" (unter „Brand Campaign Activations") | `appy3ipkgyDgyrHMJ` | Vibe / Brand / Umsetzung | PCD |
 
 Die Bereichs-Erkennung ist geometrisch: Jedes Bild gehört zur **nächstgelegenen Überschrift seiner Zeile** (Bilder dürfen auch links der Überschrift beginnen — Model-Kartei neben den Statics, Social-Spalten nebeneinander); untere Grenze ist die nächste Überschriften-Zeile darunter. Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift. Social-Zeile aktuell: „Memes" · „Band photos" · „Branding Shots".
 
