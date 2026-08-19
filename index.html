@@ -236,7 +236,8 @@ function card(){
   '<button class="cmt" id="btncmt"><b>&#9998;</b>FEEDBACK</button>'+
   '<button class="yes" data-v="Passt"><b>&#10003;</b>CONFIRM — ALLES</button></div>'+
   '<div class="subrow"><button id="undo"'+(st.hist.length?'':' disabled')+'>&#8617; UNDO</button>'+
-  '<button id="rulesbtn">&#167; Creative-Regeln</button></div>';
+  '<button id="rulesbtn">&#167; Creative-Regeln</button>'+
+  '<button id="askt">&#9998; KOMMENTAR-ABFRAGE: '+(askCmt()?'AN':'AUS')+'</button></div>';
  var stage=$('stage'),e=document.createElement('div');e.className='card'+(st.format==='postcards'?' pc':'');
  e.dataset.side='0';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
@@ -248,6 +249,8 @@ function card(){
  $('btncmt').onclick=commentSheet;
  $('undo').onclick=undo;
  $('rulesbtn').onclick=rulesSheet;
+ $('askt').onclick=function(){var v=askCmt()?'0':'1';localStorage.setItem('scr-askcmt',v);
+  $('askt').innerHTML='&#9998; KOMMENTAR-ABFRAGE: '+(askCmt()?'AN':'AUS')};
  // Postkarten: Vorder-/Rueckseiten-Toggle (Rueckseite sekundaer). Der Button
  // schaltet Front -> Back 1 -> (Back 2) -> Front; Zoom zeigt die aktive Seite.
  if(a.backImages&&a.backImages.length){
@@ -276,7 +279,7 @@ function card(){
 function drag(e,a){
  var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
  e.addEventListener('pointerdown',function(ev){
-  if(ev.target.closest('a'))return;
+  if(ev.target.closest('a')||V.querySelector('.sheet'))return;
   on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();dt=ev.target;
   try{e.setPointerCapture(ev.pointerId)}catch(x){}e.style.transition='none'});
  e.addEventListener('pointermove',function(ev){if(!on)return;dx=ev.clientX-sx;
@@ -294,13 +297,39 @@ function drag(e,a){
   dx=0});
  e.addEventListener('pointercancel',function(){on=false;dx=0;e.style.transform='';stp.style.opacity=0})}
 
-function fly(e,v){e.style.transform='translateX('+(v==='Passt'?480:-480)+'px) rotate('+(v==='Passt'?26:-26)+'deg)';e.style.opacity='0'}
+function fly(e,v){e.style.pointerEvents='none';
+ e.style.transform='translateX('+(v==='Passt'?480:-480)+'px) rotate('+(v==='Passt'?26:-26)+'deg)';e.style.opacity='0'}
 function act(v){if(V.querySelector('.sheet'))return;var c=V.querySelector('.card');
  if(c){c.style.transition='transform .25s,opacity .25s';if(v!=='sheet')fly(c,v)}go(v)}
 function go(v){
  var s=Math.round((Date.now()-st.t0)/1000);
- if(v==='Passt')commit({v:'Passt',ax:null,tags:[],cm:'',s:s});
+ // Standard: auch beim Confirm nach einem (ueberspringbaren) Kommentar fragen —
+ // Kommentare fuettern das Design-Brain. Abschaltbar per Toggle in der Subrow.
+ if(v==='Passt'){if(askCmt())confirmSheet(s);else commit({v:'Passt',ax:null,tags:[],s:s})}
  else{st.pend={s:s,ax:cfg().axes[0],tags:[]};sheet()}}
+
+function askCmt(){return localStorage.getItem('scr-askcmt')!=='0'}
+
+// ---- Confirm-Sheet: ein Button, der zu SPEICHERN wird sobald Text da ist ----
+function confirmSheet(secs){
+ if(V.querySelector('.sheet'))return;
+ var stage=$('stage'),s=document.createElement('div');s.className='sheet';
+ s.innerHTML='<h4>CONFIRMED &#10003; — KOMMENTAR?</h4>'+
+  '<div class="hint">Optional: Was macht das Creative gut, was soll öfter passieren? Positives Feedback von Max wird automatisch Regel-Vorschlag. Enter = weiter · Esc = ohne Kommentar</div>'+
+  '<textarea id="cmy" placeholder="Optional: 1 Satz …" style="width:100%;height:72px;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:9px;font-size:12px;font-family:inherit;resize:none"></textarea>'+
+  '<div class="row"><button id="cb">Abbrechen</button><button id="cgo" class="save" style="background:#16301C;border-color:#2F5F44;color:#9BE0B4">&#10003; OHNE KOMMENTAR</button></div>';
+ stage.appendChild(s);
+ var ta=s.querySelector('#cmy'),btn=s.querySelector('#cgo');
+ ta.oninput=function(){btn.innerHTML=ta.value.trim()?'&#10003; MIT KOMMENTAR SPEICHERN':'&#10003; OHNE KOMMENTAR'};
+ if(matchMedia('(pointer:fine)').matches)ta.focus();
+ function done(withText){var c=withText?ta.value.trim():'';s.remove();
+  commit({v:'Passt',ax:null,tags:[],s:secs,comment:c})}
+ btn.onclick=function(){done(true)};
+ s.querySelector('#cb').onclick=function(){s.remove();card()};
+ ta.onkeydown=function(e){
+  if((e.key==='Enter'||e.keyCode===13)&&!e.shiftKey){e.preventDefault();done(true)}
+  else if(e.key==='Escape'||e.keyCode===27){e.preventDefault();done(false)}};
+}
 
 // ---- Kommentar-Sheet (auch wenn alles passt) ----
 function commentSheet(){
