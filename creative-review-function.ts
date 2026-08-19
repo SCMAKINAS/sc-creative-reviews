@@ -490,6 +490,16 @@ async function sync(req: Request) {
 
   const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
   mark(`airtable existing: ${existing.length} assets`);
+  // DUPE-GUARD: Assets ohne Node-ID (PDF-/URL-Ingest) kann der Node-ID-Dedup
+  // nicht erkennen — ein Sync wuerde sie doppelt anlegen. Erst Reconcile
+  // (GET /boardmap + POST /setnodes); bewusstes Ueberstimmen mit ?force=1.
+  const ohneId = existing.filter((r) => !r.fields["Figma Node ID"]).length;
+  if (ohneId > 0 && !new URL(req.url).searchParams.get("force")) {
+    return json({
+      error: `${ohneId} ${f.label}-Assets ohne Figma Node ID — sync wuerde Duplikate anlegen. ` +
+        `Erst Reconcile (GET /boardmap + POST /setnodes), oder bewusst ?force=1 setzen.`,
+    }, 409);
+  }
   const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
   // Baseline: Board-Stand, der bewusst NICHT importiert wird (bereits via Slack
   // gefeedbackt). Nur Neues nach der Baseline landet in der App.
@@ -663,7 +673,7 @@ async function ingest(req: Request) {
 async function imported(req: Request) {
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
-  const recs = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID&fields[]=Batch&fields[]=Status");
+  const recs = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID&fields[]=Batch&fields[]=Status&fields[]=Position");
   const ids = new Set(recs.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
   const byBatch: Record<string, number> = {};
   const byStatus: Record<string, number> = {};
@@ -700,7 +710,14 @@ async function imported(req: Request) {
       };
     } else board = { cached: true, error: `Bereich "${f.column[0]}" im Cache nicht gefunden` };
   }
-  return json({ format: f.key, inAirtable: recs.length, byBatch, byStatus, board });
+  const withRecords = new URL(req.url).searchParams.get("records") === "1";
+  return json({
+    format: f.key, inAirtable: recs.length, byBatch, byStatus, board,
+    ...(withRecords ? { records: recs.map((r) => ({
+      assetId: r.fields["Asset ID"] ?? null, nodeId: r.fields["Figma Node ID"] ?? null,
+      batch: r.fields["Batch"] ?? null, position: r.fields["Position"] ?? null,
+    })) } : {}),
+  });
 }
 
 // Attachment direkt hochladen (Airtable Content-API, max ~5MB pro Datei).
@@ -767,6 +784,52 @@ async function ingestB64(req: Request) {
   const created = out.filter((o) => o.created).length;
   if (created && !quiet) await notify(`${f.label}: ${created} neu im Review`);
   return json({ created, results: out, batch });
+}
+
+// Reconcile-Hilfen: /boardmap liefert die Bild-Nodes einer Board-Spalte samt
+// Original-URL (Fill-Map, gecacht) — damit kann ein lokaler Abgleich Assets
+// ohne Node-ID per Bild-Hash zuordnen. /setnodes traegt die IDs dann nach.
+async function boardmap(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const maxAge = cacheTtl(req);
+  const col = await boardColumn(f, maxAge);
+  if ("error" in col) return col.error;
+  const fills = await imageFills(maxAge);
+  return json({
+    format: f.key,
+    images: (col.inCol ?? []).map((n) => ({
+      nodeId: n.id, x: n.x, y: n.y, w: n.w, h: n.h,
+      url: n.ref ? fills[n.ref] ?? null : null,
+    })),
+  });
+}
+
+// Body: {items:[{assetId:"AST-0262", nodeId:"3253:800"}]} — patcht nur Records,
+// die noch KEINE Node-ID haben; bereits vergebene Node-IDs werden uebersprungen.
+async function setNodes(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const b = await req.json().catch(() => ({}));
+  const items = Array.isArray(b?.items) ? b.items : [];
+  if (!items.length) return json({ error: "items fehlt: [{assetId,nodeId}]" }, 400);
+  const recs = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
+  const byAid = new Map(recs.map((r) => [r.fields["Asset ID"], r]));
+  const taken = new Set(recs.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  const updates: any[] = [];
+  for (const it of items) {
+    const r = byAid.get(String(it?.assetId ?? ""));
+    const nid = String(it?.nodeId ?? "").trim();
+    if (!r || !nid || r.fields["Figma Node ID"] || taken.has(nid)) continue;
+    taken.add(nid);
+    updates.push({ id: r.id, fields: {
+      "Figma Node ID": nid,
+      "Figma Link": `https://www.figma.com/board/${FIGMA_FILE}?node-id=${nid.replace(":", "-")}`,
+    } });
+  }
+  let n = 0;
+  for (let i = 0; i < updates.length; i += 10) n += await atPatch(f.base, f.assets, updates.slice(i, i + 10));
+  return json({ patched: n, uebersprungen: items.length - updates.length });
 }
 
 // ---------- Vokabular ----------
@@ -1481,6 +1544,8 @@ Deno.serve(async (req) => {
     if (route === "sync" && req.method === "POST") return await sync(req);
     if (route === "syncall" && req.method === "POST") return await syncAll(req);
     if (route === "imported") return await imported(req);
+    if (route === "boardmap") return await boardmap(req);
+    if (route === "setnodes" && req.method === "POST") return await setNodes(req);
     if (route === "ingest" && req.method === "POST") return await ingest(req);
     if (route === "ingestb64" && req.method === "POST") return await ingestB64(req);
     if (route === "probe") return await probe(req);
