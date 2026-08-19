@@ -6,7 +6,13 @@
 //
 // ROUTEN
 //   POST /sync     Review-Bereich ziehen, nach Board-Struktur gruppieren,
-//                  lose Bilder raeumlich clustern, Assets anlegen (?limit=N, ?gap=N)
+//                  lose Bilder raeumlich clustern, Assets anlegen (?limit=N, ?gap=N,
+//                  ?cache=Min — Figma-Antworten kommen aus dem Postgres-Cache)
+//   POST /syncall  alle Formate in einem Durchgang (max. 2 Figma-Calls total)
+//   POST /ingest   Assets aus mitgelieferten Bild-URLs anlegen, OHNE Figma
+//                  {items:[{url,nodeId?,backUrls?,cluster?,position?}],batch?}
+//   POST /ingestb64  wie /ingest, aber Base64-Bilder via Airtable-Content-API
+//                  (?quiet=1 = kein Ping) {items:[{b64,filename?,nodeId?,backB64s?,...}],batch?}
 //   GET  /probe    Diagnose: Figma-Fetch des Review-Bereichs messen
 //   GET  /layout   Diagnose: Bounding-Boxes der Bilder im Bereich
 //   GET  /render   Diagnose/Notbehelf: Node-IDs rendern ohne File-Fetch (?ids=a,b,c)
@@ -228,17 +234,67 @@ async function notify(message: string, opts: { title?: string; click?: string; t
   }
 }
 
+// ---------- Figma-Cache (Postgres) ----------
+// RUNRATE: Figmas 429 gilt pro Figma-USER und trifft auch die billigen
+// Endpoints. Deshalb wird JEDE Figma-Antwort gecacht: Board-Baum und
+// Image-Fill-Map. Ein Sync-Durchgang ueber alle Formate braucht dann im
+// besten Fall NULL Figma-Calls (Cache) und im schlechtesten ZWEI
+// (1x nodes + 1x images) — vorher war es 1x nodes + N/40 teure Renders.
+async function cacheGet(key: string, maxAgeMs: number): Promise<any | null> {
+  try {
+    const rows = await pg(`figma_cache?key=eq.${encodeURIComponent(key)}&select=payload,fetched_at`);
+    const row = rows?.[0];
+    if (!row) return null;
+    if (Date.now() - new Date(row.fetched_at).getTime() > maxAgeMs) return null;
+    return row.payload;
+  } catch (_e) { return null; }
+}
+async function cacheSet(key: string, payload: any): Promise<void> {
+  try {
+    await pg("figma_cache", {
+      method: "POST",
+      body: JSON.stringify([{ key, payload, fetched_at: new Date().toISOString() }]),
+    });
+  } catch (e) { console.log(`[cache] ${String(e)}`); }
+}
+// Cache-Alter in Minuten (?cache=N; 0 = frisch erzwingen).
+function cacheTtl(req: Request, def = 120): number {
+  const v = parseInt(new URL(req.url).searchParams.get("cache") ?? "", 10);
+  return (Number.isFinite(v) && v >= 0 ? v : def) * 60_000;
+}
+
 // ---------- Figma ----------
 async function figma(path: string): Promise<any> {
   const tok = await figmaToken();
   if (!tok) throw new Error("Kein Figma-Token konfiguriert (app_config.figma_token oder Secret).");
   const r = await fetch(`https://api.figma.com/v1/${path}`, { headers: { "X-Figma-Token": tok } });
+  if (r.status === 429) {
+    throw new Error(
+      "Figma 429 Rate-Limit. Gilt pro Figma-USER, nicht pro Token — ein zweites Token " +
+      "desselben Accounts hilft NICHT. Abhilfe: (a) frisches Token eines ANDEREN Figma-Accounts " +
+      "per SQL in app_config.figma_token (kein Redeploy noetig, 5-Min-Cache), oder (b) warten " +
+      "und mit ?cache=… aus dem Postgres-Cache arbeiten, oder (c) POST /ingest ohne Figma nutzen.",
+    );
+  }
   const b = await r.json();
   if (!r.ok) throw new Error(`Figma ${r.status}: ${JSON.stringify(b)}`);
   return b;
 }
 
-type N = { id: string; x: number; y: number; w: number; h: number; name: string; section?: string | null };
+// Alle Bild-Fuellungen des Files: EIN billiger Call liefert imageRef -> S3-URL
+// fuer ALLE Bilder. Das ersetzt die teuren Render-Calls (images/:key?ids=…),
+// die das Rate-Budget verbrannt haben. Ergebnis wird gecacht.
+async function imageFills(maxAgeMs = 120 * 60_000): Promise<Record<string, string>> {
+  const key = `fills:${FIGMA_FILE}`;
+  const hit = await cacheGet(key, maxAgeMs);
+  if (hit) return hit as Record<string, string>;
+  const r = await figma(`files/${FIGMA_FILE}/images`);
+  const map = (r?.meta?.images ?? {}) as Record<string, string>;
+  if (Object.keys(map).length) await cacheSet(key, map);
+  return map;
+}
+
+type N = { id: string; x: number; y: number; w: number; h: number; name: string; section?: string | null; ref?: string | null };
 
 function walk(node: any, texts: any[], imgs: N[], section: string | null = null) {
   const bb = node?.absoluteBoundingBox;
@@ -246,7 +302,12 @@ function walk(node: any, texts: any[], imgs: N[], section: string | null = null)
   const isImg = node?.type === "IMAGE" ||
     (Array.isArray(node?.fills) && node.fills.some((f: any) => f?.type === "IMAGE" && f?.visible !== false));
   if (isImg && bb && node.visible !== false) {
-    imgs.push({ id: node.id, x: bb.x, y: bb.y, w: bb.width, h: bb.height, name: node.name ?? "", section });
+    // imageRef = Schluessel in die Image-Fill-Map (siehe imageFills()) — damit
+    // kommen wir OHNE Render-Call an die Originaldatei.
+    const fill = Array.isArray(node?.fills)
+      ? node.fills.find((f: any) => f?.type === "IMAGE" && f?.visible !== false)
+      : null;
+    imgs.push({ id: node.id, x: bb.x, y: bb.y, w: bb.width, h: bb.height, name: node.name ?? "", section, ref: fill?.imageRef ?? null });
     return; // Kinder eines Bild-Nodes nicht weiter absteigen
   }
   // Szenen-Gruppierung: benannte Sections/Frames/Groups im Board tragen die Struktur.
@@ -290,12 +351,17 @@ function findHead(texts: any[], f: Fmt) {
     return f.column.some((c) => s.includes(c));
   });
 }
-async function reviewRoot(): Promise<any | null> {
+async function reviewRoot(maxAgeMs = 120 * 60_000): Promise<any | null> {
+  const key = `nodes:${FIGMA_FILE}:${REVIEW_ROOT}`;
+  const hit = await cacheGet(key, maxAgeMs);
+  if (hit) return hit;
   const resp = await figma(`files/${FIGMA_FILE}/nodes?ids=${encodeURIComponent(REVIEW_ROOT)}`);
-  return resp?.nodes?.[REVIEW_ROOT]?.document ?? null;
+  const doc = resp?.nodes?.[REVIEW_ROOT]?.document ?? null;
+  if (doc) await cacheSet(key, doc);
+  return doc;
 }
-async function boardColumn(f: Fmt) {
-  const doc = await reviewRoot();
+async function boardColumn(f: Fmt, maxAgeMs = 120 * 60_000) {
+  const doc = await reviewRoot(maxAgeMs);
   if (!doc) return { error: json({ error: `Review-Bereich ${REVIEW_ROOT} nicht im Board gefunden.` }, 404) };
   const texts: any[] = [], imgs: N[] = [];
   for (const c of doc.children ?? []) walk(c, texts, imgs, null);
@@ -372,9 +438,10 @@ async function sync(req: Request) {
 
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
-  mark(`format: ${f.key}`);
+  const maxAge = cacheTtl(req);
+  mark(`format: ${f.key} (cache ${Math.round(maxAge / 60000)} min)`);
   mark("figma fetch start");
-  const col = await boardColumn(f);
+  const col = await boardColumn(f, maxAge);
   if ("error" in col) return col.error;
   const inCol = col.inCol!;
   mark(`walked: ${col.texts} texts, ${col.imgs} images, ${inCol.length} in column`);
@@ -471,13 +538,26 @@ async function sync(req: Request) {
     wanted.push(...backIds);
   }
 
-  // Renders in Haeppchen, sonst wird die URL zu lang.
+  // BILD-URLS: primaer aus der Image-Fill-Map (1 billiger Call, gecacht).
+  // Nur Nodes ohne imageRef (z. B. gruppierte Vektoren) gehen noch ueber den
+  // teuren Render-Endpoint — das ist der Runrate-Fix.
   const urls: Record<string, string> = {};
-  for (let i = 0; i < wanted.length; i += 40) {
-    const ids = wanted.slice(i, i + 40).join(",");
+  const refById = new Map<string, string | null>();
+  for (const n of inCol) refById.set(n.id, n.ref ?? null);
+  const fills = await imageFills(maxAge);
+  const needRender: string[] = [];
+  for (const id of wanted) {
+    const ref = refById.get(id) ?? null;
+    const u = ref ? fills[ref] : null;
+    if (u) urls[id] = u;
+    else needRender.push(id);
+  }
+  mark(`fills: ${Object.keys(urls).length}/${wanted.length} ohne Render geloest`);
+  for (let i = 0; i < needRender.length; i += 40) {
+    const ids = needRender.slice(i, i + 40).join(",");
     const r = await figma(`images/${FIGMA_FILE}?ids=${encodeURIComponent(ids)}&format=jpg&scale=1`);
     Object.assign(urls, r.images ?? {});
-    mark(`rendered ${Math.min(i + 40, wanted.length)}/${wanted.length}`);
+    mark(`rendered ${Math.min(i + 40, needRender.length)}/${needRender.length} (Fallback)`);
   }
   const payload = rows.map((r) => {
     const u = urls[r.node];
@@ -505,6 +585,188 @@ async function sync(req: Request) {
     batch,
     ...(made.length !== payload.length ? { warning: "Weniger Records als erwartet — Base pruefen." } : {}),
   });
+}
+
+// Alle Formate in EINEM Durchgang. Dank Cache kostet das insgesamt maximal
+// zwei Figma-Calls (Baum + Fill-Map) statt einem Satz pro Format.
+async function syncAll(req: Request) {
+  const url = new URL(req.url);
+  const out: Record<string, any> = {};
+  let created = 0;
+  for (const key of Object.keys(FORMATS)) {
+    const u = new URL(url.toString());
+    u.searchParams.set("format", key);
+    try {
+      const r = await sync(new Request(u.toString(), { method: "POST", headers: req.headers }));
+      const b = await r.json();
+      out[key] = b;
+      created += Number(b?.created ?? 0);
+    } catch (e) {
+      out[key] = { error: String(e) };
+    }
+  }
+  return json({ createdTotal: created, formate: out });
+}
+
+// NOTFALLPFAD OHNE FIGMA: Bild-URLs kommen von aussen (z. B. aus der
+// Figma-Desktop-Session via MCP). Damit laesst sich die Queue auch dann
+// fuellen, wenn das Figma-Rate-Budget des Accounts blockiert ist.
+// Body: {items:[{url, nodeId?, backUrls?, cluster?, position?}], batch?}
+async function ingest(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const b = await req.json().catch(() => ({}));
+  const items = Array.isArray(b?.items) ? b.items : [];
+  if (!items.length) {
+    return json({ error: "items fehlt: [{url, nodeId?, backUrls?, cluster?, position?}]" }, 400);
+  }
+  const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID");
+  const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  let seq = existing.reduce((m, r) => {
+    const k = parseInt(String(r.fields["Asset ID"] ?? "").split("-")[1] ?? "0", 10);
+    return Number.isFinite(k) && k > m ? k : m;
+  }, 0);
+  const batch = String(b?.batch ?? "").trim() || `${new Date().toISOString().slice(0, 10)}-INGEST`;
+  const rows: any[] = [];
+  for (const it of items) {
+    const u = String(it?.url ?? "").trim();
+    if (!u) continue;
+    const nodeId = String(it?.nodeId ?? "").trim();
+    if (nodeId && seen.has(nodeId)) continue;
+    if (nodeId) seen.add(nodeId);
+    const backs = (Array.isArray(it?.backUrls) ? it.backUrls : [])
+      .filter(Boolean).map((x: any) => ({ url: String(x) }));
+    rows.push({ fields: {
+      "Asset ID": `${f.prefix}-${String(++seq).padStart(4, "0")}`,
+      ...(nodeId ? {
+        "Figma Node ID": nodeId,
+        "Figma Link": `https://www.figma.com/board/${FIGMA_FILE}?node-id=${nodeId.replace(":", "-")}`,
+      } : {}),
+      Cluster: String(it?.cluster ?? "CL-01"),
+      ...(Number.isFinite(Number(it?.position)) ? { Position: Number(it.position) } : {}),
+      Batch: batch,
+      Status: "Queued",
+      "Pulled at": new Date().toISOString(),
+      Preview: [{ url: u }],
+      ...(backs.length ? { "Back Preview": backs } : {}),
+    } });
+  }
+  if (!rows.length) return json({ created: 0, skipped: items.length, note: "Alles bereits vorhanden." });
+  const made = await atCreate(f.base, f.assets, rows);
+  if (made.length) await notify(`${f.label}: ${made.length} neu im Review`);
+  return json({ created: made.length, skipped: items.length - rows.length, batch });
+}
+
+// Diagnose OHNE Figma: was liegt in Airtable, was fehlt gegenueber dem
+// zuletzt gecachten Board-Stand? Beantwortet "sind alle Creatives drin?"
+// auch dann, wenn das Figma-Budget blockiert ist.
+async function imported(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const recs = await atAll(f.base, f.assets, "fields[]=Figma Node ID&fields[]=Asset ID&fields[]=Batch&fields[]=Status");
+  const ids = new Set(recs.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  const byBatch: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  for (const r of recs) {
+    const b = String(r.fields["Batch"] ?? "—"); byBatch[b] = (byBatch[b] ?? 0) + 1;
+    const st = String(r.fields["Status"] ?? "—"); byStatus[st] = (byStatus[st] ?? 0) + 1;
+  }
+  // Board-Vergleich nur, wenn ein Cache existiert (kein Figma-Call!).
+  let board: any = { cached: false };
+  const doc = await cacheGet(`nodes:${FIGMA_FILE}:${REVIEW_ROOT}`, 7 * 24 * 60 * 60_000);
+  if (doc) {
+    const texts: any[] = [], imgs: N[] = [];
+    for (const c of doc.children ?? []) walk(c, texts, imgs, null);
+    const heads = texts.filter((t) => (t.h ?? 0) >= 500);
+    const head = findHead(heads, f);
+    if (head) {
+      const rowHeads = heads.filter((t) => Math.abs(t.y - head.y) < 2500);
+      const below = heads.filter((t) => t.y > head.y + 2500).map((t) => t.y);
+      const yMax = below.length ? Math.min(...below) - 20 : Infinity;
+      const inCol = imgs.filter((n) => {
+        if (n.y <= head.y || n.y >= yMax) return false;
+        const cx = n.x + n.w / 2;
+        let best = rowHeads[0];
+        for (const t of rowHeads) if (Math.abs(cx - t.x) < Math.abs(cx - best.x)) best = t;
+        return best === head;
+      });
+      const missing = inCol.filter((n) => !ids.has(n.id));
+      board = {
+        cached: true,
+        imBereich: inCol.length,
+        fehlen: missing.length,
+        fehlendeNodes: missing.slice(0, 250).map((n) => n.id),
+        mitImageRef: missing.filter((n) => n.ref).length,
+      };
+    } else board = { cached: true, error: `Bereich "${f.column[0]}" im Cache nicht gefunden` };
+  }
+  return json({ format: f.key, inAirtable: recs.length, byBatch, byStatus, board });
+}
+
+// Attachment direkt hochladen (Airtable Content-API, max ~5MB pro Datei).
+async function atUpload(base: string, rec: string, field: string, b64: string, filename: string) {
+  const r = await fetch(
+    `https://content.airtable.com/v0/${base}/${rec}/${encodeURIComponent(field)}/uploadAttachment`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${AIRTABLE_PAT}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ contentType: "image/jpeg", file: b64, filename }),
+    },
+  );
+  if (!r.ok) throw new Error(`Airtable upload ${r.status}: ${(await r.text()).slice(0, 300)}`);
+}
+
+// NOTFALLPFAD 2 OHNE FIGMA UND OHNE OEFFENTLICHE URLS: Bilder kommen als
+// Base64 im Body (z. B. aus einem PDF-Export des Boards gerendert) und gehen
+// via Content-API in die Attachment-Felder. ?quiet=1 unterdrueckt den Ping,
+// damit Chunk-Uploads nicht pro Aufruf benachrichtigen.
+// Body: {items:[{b64, filename?, nodeId?, backB64s?:[{b64,filename?}], cluster?, position?}], batch?}
+async function ingestB64(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const quiet = new URL(req.url).searchParams.get("quiet") === "1";
+  const b = await req.json().catch(() => ({}));
+  const items = Array.isArray(b?.items) ? b.items : [];
+  if (!items.length) return json({ error: "items fehlt" }, 400);
+  const existing = await atAll(f.base, f.assets, "fields%5B%5D=Asset%20ID&fields%5B%5D=Figma%20Node%20ID");
+  const seen = new Set(existing.map((r) => r.fields["Figma Node ID"]).filter(Boolean));
+  let seq = existing.reduce((m, r) => {
+    const k = parseInt(String(r.fields["Asset ID"] ?? "").split("-")[1] ?? "0", 10);
+    return Number.isFinite(k) && k > m ? k : m;
+  }, 0);
+  const batch = String(b?.batch ?? "").trim() || `${new Date().toISOString().slice(0, 10)}-B64`;
+  const out: any[] = [];
+  for (const it of items) {
+    const nodeId = String(it?.nodeId ?? "").trim();
+    if (nodeId && seen.has(nodeId)) { out.push({ skipped: nodeId }); continue; }
+    if (nodeId) seen.add(nodeId);
+    const fields: Record<string, unknown> = {
+      "Asset ID": `${f.prefix}-${String(++seq).padStart(4, "0")}`,
+      ...(nodeId ? {
+        "Figma Node ID": nodeId,
+        "Figma Link": `https://www.figma.com/board/${FIGMA_FILE}?node-id=${nodeId.replace(":", "-")}`,
+      } : {}),
+      Cluster: String(it?.cluster ?? "CL-01"),
+      ...(Number.isFinite(Number(it?.position)) ? { Position: Number(it.position) } : {}),
+      Batch: batch,
+      Status: "Queued",
+      "Pulled at": new Date().toISOString(),
+    };
+    try {
+      const made = await atCreate(f.base, f.assets, [{ fields }]);
+      const rec = made[0]?.id;
+      if (!rec) { out.push({ error: "create lieferte keinen Record" }); seq--; continue; }
+      await atUpload(f.base, rec, "Preview", String(it.b64 ?? ""), String(it?.filename ?? "asset.jpg"));
+      const backs = Array.isArray(it?.backB64s) ? it.backB64s : [];
+      for (let i = 0; i < backs.length; i++) {
+        await atUpload(f.base, rec, "Back Preview", String(backs[i]?.b64 ?? backs[i] ?? ""), String(backs[i]?.filename ?? `back${i + 1}.jpg`));
+      }
+      out.push({ created: fields["Asset ID"], rec });
+    } catch (e) { out.push({ error: String(e).slice(0, 300) }); }
+  }
+  const created = out.filter((o) => o.created).length;
+  if (created && !quiet) await notify(`${f.label}: ${created} neu im Review`);
+  return json({ created, results: out, batch });
 }
 
 // ---------- Vokabular ----------
@@ -1217,6 +1479,10 @@ Deno.serve(async (req) => {
       return json({ error: `Route /${route} gibt es fuer format=artworks nicht (kein Figma-Sync).` }, 400);
     }
     if (route === "sync" && req.method === "POST") return await sync(req);
+    if (route === "syncall" && req.method === "POST") return await syncAll(req);
+    if (route === "imported") return await imported(req);
+    if (route === "ingest" && req.method === "POST") return await ingest(req);
+    if (route === "ingestb64" && req.method === "POST") return await ingestB64(req);
     if (route === "probe") return await probe(req);
     if (route === "layout") return await layout(req);
     if (route === "render") return await render(req);
