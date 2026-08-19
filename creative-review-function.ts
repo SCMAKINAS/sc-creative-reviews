@@ -78,7 +78,9 @@ const FORMATS: Record<string, Fmt> = {
   },
   branding: {
     base: "appPaEX5g0qOOz5L4", assets: "tblN6h6bLwkaGWsUo", reviews: "tblXNaFF8fy5xdugq",
-    column: ["branding shots", "branding"],
+    // "Band photos" ist die aktive Board-Spalte fuer Brand-Imagery (seit 2026-08-19);
+    // "branding shots" existiert als leere Spalte weiter und bleibt Fallback-Alias.
+    column: ["band photos", "branding shots", "branding"],
     axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
     prefix: "BRD", label: "Branding Shots",
   },
