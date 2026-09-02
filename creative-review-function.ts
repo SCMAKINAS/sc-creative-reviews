@@ -938,6 +938,23 @@ async function queue(req: Request) {
   });
 }
 
+// Filtert reine Lob-Kommentare ("Mega", "Top") aus dem Auto-Regel-Vorschlag —
+// Substanz-Heuristik, kein Ersatz fuer menschliche Pruefung: zu kurze Texte
+// UND Texte, die nach Abzug von Lob-Woertern kaum noch Inhalt haben, zaehlen
+// nicht als Regel-Vorschlag. Bewusst grosszuegig, um echte kurze Beobachtungen
+// nicht zu verlieren (Grenzfaelle wird es weiterhin geben).
+const PRAISE_WORDS = new Set([
+  "mega", "nice", "super", "geil", "gut", "top", "passt", "schoen", "schön",
+  "genial", "krass", "stark", "cool", "perfekt", "wow", "love", "amazing",
+]);
+function isSubstantiveComment(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 25) return false;
+  const words = t.toLowerCase().replace(/[^\p{L}\s]/gu, "").split(/\s+/).filter(Boolean);
+  const contentWords = words.filter((w) => !PRAISE_WORDS.has(w));
+  return contentWords.length >= 3;
+}
+
 // ---------- Review ----------
 async function review(req: Request) {
   const f = fmtOf(req);
@@ -992,7 +1009,7 @@ async function review(req: Request) {
   // Positiver Decision-Kommentar (Max) => automatisch als Regel-Vorschlag
   // in die Regeln-Tabelle. Max bestaetigt/verwirft dort (Status).
   let ruleId: string | null = null;
-  if (b.role === "Decision" && passt && (b.comment ?? "").trim().length > 3) {
+  if (b.role === "Decision" && passt && isSubstantiveComment(b.comment ?? "")) {
     try {
       const regeln = await atAll(BASE, T.regeln, "fields[]=Regel ID");
       const seq = regeln.reduce((m, r) => {
