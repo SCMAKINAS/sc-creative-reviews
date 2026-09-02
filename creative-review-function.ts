@@ -968,6 +968,25 @@ async function review(req: Request) {
   // Nur Decision schreibt den Asset-Status fort. Shadow aendert nichts.
   if (b.role === "Decision") {
     await atPatch(f.base, f.assets, [{ id: b.recordId, fields: { Status: passt ? "Passt" : "Abweichung" } }]);
+    // Paket-fertig-Push (Jonas/Flo): wenn nach diesem Decision-Review kein
+    // Queued-Asset im selben Batch mehr uebrig ist, war das der letzte. Rein
+    // event-getrieben (kein Cron/Polling) -- haengt direkt an dieser Schreibung.
+    try {
+      const own = await at(f.base, `${f.assets}/${b.recordId}`);
+      const batch = own?.fields?.["Batch"];
+      if (batch) {
+        const inBatch = await atAll(f.base, f.assets, "filterByFormula=" + encodeURIComponent(`{Batch}="${batch}"`));
+        const stillOpen = inBatch.filter((r) => r.fields["Status"] === "Queued").length;
+        if (stillOpen === 0 && inBatch.length > 0) {
+          await notify(`${f.label}: Paket ${batch} komplett von ${b.reviewer} durchgereviewed (${inBatch.length} Assets)`, {
+            title: "Paket fertig",
+            tags: ["white_check_mark"],
+          });
+        }
+      }
+    } catch (e) {
+      console.log(`[batch-notify] fehlgeschlagen: ${String(e)}`);
+    }
   }
 
   // Positiver Decision-Kommentar (Max) => automatisch als Regel-Vorschlag
