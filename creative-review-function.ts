@@ -33,6 +33,8 @@
 //   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
 //   GET  /videocats        3-stufige Video-Kategorien (Directory->Content-Art->Format)
 //                          mit Parent-IDs inline, fuer die Upload-Seite
+//   POST /videocats        neue Content-Art oder neues Format anlegen (Selbstbedienung,
+//                          kein Redeploy) {kind:"contentArt"|"format", name, parentId}
 //   POST /uploadurl?format=video  mintet eine Supabase-Storage Signed-Upload-URL
 //                          {filename} -> {path,token,signedUrl} — Browser laedt die
 //                          Datei direkt zur signedUrl hoch (PUT), dann /ingest
@@ -914,6 +916,32 @@ async function videoCategories() {
   });
 }
 
+// Selbstbedienung fuer Flo/Robert direkt auf der Upload-Seite: eine neue
+// Content-Art oder ein neues Format anlegen, ohne vorher in Airtable
+// vorbeizuschauen -- gleiches Prinzip wie die "eigener Grund als neuer Tag"-
+// Funktion bei den Fail-Tags. Body: {kind:"contentArt"|"format", name, parentId}.
+async function videoCategoryAdd(req: Request) {
+  const b = await req.json().catch(() => ({}));
+  const kind = String(b?.kind ?? "");
+  const name = String(b?.name ?? "").trim();
+  const parentId = String(b?.parentId ?? "").trim();
+  if (!name) return json({ error: "name fehlt" }, 400);
+  if (!parentId) return json({ error: "parentId fehlt" }, 400);
+  if (kind === "contentArt") {
+    const made = await atCreate(VIDEOCAT.base, VIDEOCAT.contentArts, [{ fields: {
+      Name: name, Directory: [parentId],
+    } }]);
+    return json({ id: made[0].id, name, directoryId: parentId });
+  }
+  if (kind === "format") {
+    const made = await atCreate(VIDEOCAT.base, VIDEOCAT.formats, [{ fields: {
+      Name: name, "Content-Art": [parentId],
+    } }]);
+    return json({ id: made[0].id, name, contentArtId: parentId });
+  }
+  return json({ error: "kind muss contentArt|format sein" }, 400);
+}
+
 // ---------- Video-Upload: Signed URL (Supabase Storage) ----------
 // Mintet server-seitig (Service-Role, umgeht RLS ohnehin) eine Signed-Upload-
 // URL -- laut Supabase-Doku "ohne weitere Authentifizierung" nutzbar, der
@@ -1691,7 +1719,7 @@ Deno.serve(async (req) => {
     if (route === "setnodes" && req.method === "POST") return await setNodes(req);
     if (route === "ingest" && req.method === "POST") return await ingest(req);
     if (route === "ingestb64" && req.method === "POST") return await ingestB64(req);
-    if (route === "videocats") return await videoCategories();
+    if (route === "videocats") return req.method === "POST" ? await videoCategoryAdd(req) : await videoCategories();
     if (route === "uploadurl" && req.method === "POST") return await uploadUrl(req);
     if (route === "probe") return await probe(req);
     if (route === "layout") return await layout(req);

@@ -33,6 +33,10 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 .drop b{display:block;font-family:'Oswald','Arial Narrow',sans-serif;font-size:12px;letter-spacing:.08em;margin-bottom:4px}
 .drop span{font-size:9.5px;color:var(--bone2)}
 .drop input{display:none}
+.newin{display:flex;gap:5px;margin-top:6px}
+.newin input{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:8px 9px;font-size:11px}
+.newin button{background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:7px;padding:0 13px;font-size:10px;font-weight:700;cursor:pointer}
+.newin button:disabled{opacity:.5;cursor:default}
 video.preview{width:100%;max-height:200px;border-radius:7px;margin-top:10px;display:none;background:#000}
 .bar{height:4px;background:#262626;border-radius:2px;overflow:hidden;margin-top:12px;display:none}
 .bar i{display:block;height:100%;width:0;background:var(--blood);transition:width .2s}
@@ -78,18 +82,22 @@ function load(){
  api('/videocats').then(function(d){CATS=d;form()}).catch(function(e){
   V.innerHTML='<div class="loadbox">FEHLER: '+esc(e.message)+'</div>'})}
 
-function opts(list,ph){
+var NEWOPT='__new__';
+function opts(list,ph,allowNew){
  return '<option value="">'+esc(ph)+'</option>'+
-  list.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')}
+  list.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')+
+  (allowNew===false?'':'<option value="'+NEWOPT+'">+ Neu anlegen ...</option>')}
 
 function form(){
  file=null;
  V.innerHTML='<div class="body">'+
   '<h4>NEUES VIDEO</h4>'+
   '<div class="hint">Kategorie wählen, Datei auswählen oder reinziehen, hochladen. Erscheint danach im VIDEO-Tab der Review-App.</div>'+
-  '<label>DIRECTORY</label><select id="dir">'+opts(CATS.directories,'Wählen …')+'</select>'+
+  '<label>DIRECTORY</label><select id="dir">'+opts(CATS.directories,'Wählen …',false)+'</select>'+
   '<label>CONTENT-ART</label><select id="ca" disabled>'+opts([],'— erst Directory wählen —')+'</select>'+
+  '<div class="newin" id="canew" style="display:none"><input id="cani" placeholder="Neue Content-Art"><button id="cana">Anlegen</button></div>'+
   '<label>FORMAT</label><select id="fmt" disabled>'+opts([],'— erst Content-Art wählen —')+'</select>'+
+  '<div class="newin" id="fmtnew" style="display:none"><input id="fmtni" placeholder="Neues Format"><button id="fmtna">Anlegen</button></div>'+
   '<label>DATEI</label>'+
   '<div class="drop" id="drop"><b>DATEI WÄHLEN ODER REINZIEHEN</b><span>MP4, MOV, WebM — bis 500 MB</span>'+
    '<input type="file" id="file" accept="video/*"></div>'+
@@ -100,18 +108,50 @@ function form(){
   '</div>';
 
  var dirSel=$('dir'),caSel=$('ca'),fmtSel=$('fmt');
+
+ function wireNew(sel,rowId,inputId,btnId,kind,listKey,getParentId,onAdded){
+  var row=$(rowId),input=$(inputId),btn=$(btnId);
+  sel.addEventListener('change',function(){
+   if(sel.value!==NEWOPT)return;
+   row.style.display='flex';input.value='';input.focus()});
+  function commit(){
+   var name=input.value.trim();if(!name)return;
+   var parentId=getParentId();
+   btn.disabled=true;btn.textContent='...';
+   api('/videocats',{method:'POST',body:JSON.stringify({kind:kind,name:name,parentId:parentId})})
+    .then(function(d){
+     CATS[listKey].push(d);
+     row.style.display='none';btn.disabled=false;btn.textContent='Anlegen';
+     onAdded(d.id)})
+    .catch(function(e){btn.disabled=false;btn.textContent='Anlegen';toast('Anlegen fehlgeschlagen: '+e.message,false)})}
+  btn.onclick=commit;
+  input.onkeydown=function(e){if(e.key==='Enter')commit()}}
+
  dirSel.onchange=function(){
   var kids=CATS.contentArts.filter(function(c){return c.directoryId===dirSel.value});
-  caSel.innerHTML=opts(kids,kids.length?'Wählen …':'— keine angelegt —');
+  caSel.innerHTML=opts(kids,kids.length?'Wählen …':'noch keine angelegt');
   caSel.disabled=!dirSel.value;
+  $('canew').style.display='none';
   fmtSel.innerHTML=opts([],'— erst Content-Art wählen —');fmtSel.disabled=true;
+  $('fmtnew').style.display='none';
   checkReady()};
  caSel.onchange=function(){
+  if(caSel.value===NEWOPT)return;
   var kids=CATS.formats.filter(function(f){return f.contentArtId===caSel.value});
-  fmtSel.innerHTML=opts(kids,kids.length?'Wählen …':'— keine angelegt —');
+  fmtSel.innerHTML=opts(kids,kids.length?'Wählen …':'noch keine angelegt');
   fmtSel.disabled=!caSel.value;
+  $('fmtnew').style.display='none';
   checkReady()};
- fmtSel.onchange=checkReady;
+ fmtSel.onchange=function(){if(fmtSel.value!==NEWOPT)checkReady()};
+
+ wireNew(caSel,'canew','cani','cana','contentArt','contentArts',
+  function(){return dirSel.value},
+  function(newId){caSel.innerHTML=opts(CATS.contentArts.filter(function(c){return c.directoryId===dirSel.value}),'Wählen …');
+   caSel.value=newId;caSel.onchange();checkReady()});
+ wireNew(fmtSel,'fmtnew','fmtni','fmtna','format','formats',
+  function(){return caSel.value},
+  function(newId){fmtSel.innerHTML=opts(CATS.formats.filter(function(f){return f.contentArtId===caSel.value}),'Wählen …');
+   fmtSel.value=newId;checkReady()});
 
  var drop=$('drop'),fileInput=$('file'),prev=$('prev');
  drop.onclick=function(){fileInput.click()};
@@ -127,8 +167,9 @@ function form(){
   prev.src=URL.createObjectURL(f);prev.style.display='block';
   checkReady()}
 
+ function valid(v){return v&&v!==NEWOPT}
  function checkReady(){
-  $('go').disabled=!(file&&dirSel.value&&caSel.value&&fmtSel.value)}
+  $('go').disabled=!(file&&valid(dirSel.value)&&valid(caSel.value)&&valid(fmtSel.value))}
 
  $('go').onclick=function(){upload(dirSel.value,caSel.value,fmtSel.value)}}
 
