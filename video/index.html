@@ -42,7 +42,6 @@ video.preview{width:100%;max-height:200px;border-radius:7px;margin-top:10px;disp
 .toast{margin-top:11px;font-size:10.5px;line-height:1.5;padding:9px 11px;border-radius:7px;display:none}
 .toast.err{display:block;background:#2a1414;border:1px solid var(--blood);color:#f0b8b8}
 .toast.ok{display:block;background:#16301C;border:1px solid #2F5F44;color:#9BE0B4}
-.keyask input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:11px;font-size:12px;text-align:center;letter-spacing:.05em;margin:10px 0}
 .loadbox{padding:40px 13px;text-align:center;font-size:10px;letter-spacing:.08em;color:var(--bone2)}
 @media(min-width:760px){#app{max-width:480px}}
 </style>
@@ -60,7 +59,10 @@ video.preview{width:100%;max-height:200px;border-radius:7px;margin-top:10px;disp
 "use strict";
 var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
 var SB_ROOT="https://ekiwwjzmiywaxvxdhzat.supabase.co";
-var KEY=null;
+// Fest eingebaut statt Prompt — diese Seite ist fuer Flo/Robert (Upload,
+// keine Reviewer), die sollen keinen Key-Screen sehen. Selber Key wie die
+// ?key=-Links, die im Team ohnehin schon offen herumgereicht werden.
+var KEY="547895645621236548899654123654563214779896";
 var CATS=null,file=null;
 
 var V=document.getElementById('view');
@@ -71,26 +73,10 @@ function api(path,opts){opts=opts||{};
  return fetch(API+path,opts).then(function(r){
   return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
 
-function cleanKey(v){return String(v||'').replace(/[^A-Za-z0-9_-]/g,'')}
-function initKey(){
- var q=new URLSearchParams(location.search);
- if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
- else KEY=cleanKey(localStorage.getItem('scr-key'));
- if(!KEY){askKey();return false}
- return true}
-function askKey(){
- V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
- '<div class="hint">Derselbe Key wie in der Review-App.</div>'+
- '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
- $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
- $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
-
 function load(){
  V.innerHTML='<div class="loadbox">LADE KATEGORIEN …</div>';
  api('/videocats').then(function(d){CATS=d;form()}).catch(function(e){
-  var m=String(e.message);
-  if(m.indexOf('unauthorized')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
-  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
+  V.innerHTML='<div class="loadbox">FEHLER: '+esc(e.message)+'</div>'})}
 
 function opts(list,ph){
  return '<option value="">'+esc(ph)+'</option>'+
@@ -174,7 +160,7 @@ function upload(directoryId,contentArtId,formatId){
    go.disabled=false;go.textContent='HOCHLADEN';bar.style.display='none';bari.style.width='0';
    toast('Fehlgeschlagen: '+String(e.message),false)})}
 
-if(initKey())load();
+load();
 })();
 </script>
 </body>
