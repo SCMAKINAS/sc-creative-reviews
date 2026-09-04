@@ -28,6 +28,7 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 | Datei | Zweck |
 |---|---|
 | `index.html` | Die komplette Review-App Marketing-Creatives (Single File, keine Build-Schritte) |
+| `video/index.html` | Video-Upload-Seite (Kategorisierung + Datei-Upload) — eigene Seite, gleiche Edge Function (`?format=video`) |
 | `artworks/index.html` | Artwork-Review-App fürs Design-Team (Vuven & Max) — eigene Seite, gleiche Edge Function (`?format=artworks`) |
 | `sketches/index.html` | Redirect auf `/artworks/` (Pfad reserviert für die künftige Sketch-Review-App) |
 | `creative-review-function.ts` | Quellcode der Supabase Edge Function (Referenz/Versionierung — deployt wird über Supabase, nicht von hier) |
@@ -35,7 +36,7 @@ Review-App (index.html in diesem Repo, gehostet via GitHub Pages)
 
 ## Formate
 
-Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), eine eigene Airtable-Base und eigene Review-Achsen/Tags. Umschalter in der App (SHOOTING | MEMES | BRANDING). API-Aufrufe: `?format=statics|memes|branding` (Default statics).
+Jedes Review-Format hat eine eigene Airtable-Base und eigene Review-Achsen/Tags. Umschalter in der App (SHOOTING | MEMES | BRANDING | POSTCARDS | VIDEO). API-Aufrufe: `?format=statics|memes|branding|postcards|video` (Default statics). Alle Formate außer video haben zusätzlich einen eigenen Board-Bereich (große Text-Überschrift) für den Figma-Sync.
 
 | Format | Board-Überschrift | Airtable-Base | Achsen | Prefix |
 |---|---|---|---|---|
@@ -43,12 +44,17 @@ Jedes Review-Format hat einen eigenen Board-Bereich (große Text-Überschrift), 
 | memes | „Memes" (unter „Social Media Content for Approval") | `appW9B8mQaT7krmg2` | Witz / Brand / Umsetzung | MEM |
 | branding | „Branding Shots" (unter „Social Media Content for Approval") | `appPaEX5g0qOOz5L4` | Vibe / Brand / Umsetzung | BRD |
 | postcards | „Post Card Campaign" (unter „Brand Campaign Activations") | `appy3ipkgyDgyrHMJ` | Vibe / Brand / Umsetzung | PCD |
+| video | *(kein Board-Bereich — `figma:false`)* | `app0okYhD4BJgoEmd` | Vibe / Brand / Umsetzung | VID |
 
 Die Bereichs-Erkennung ist geometrisch: Jedes Bild gehört zur **nächstgelegenen Überschrift seiner Zeile** (Bilder dürfen auch links der Überschrift beginnen — Model-Kartei neben den Statics, Social-Spalten nebeneinander); untere Grenze ist die nächste Überschriften-Zeile darunter. Kleine Labels (< 500 Board-Einheiten hoch) zählen nicht als Überschrift. Social-Zeile aktuell: „Memes" · „Band photos" · „Branding Shots".
 
 **Postcards-Besonderheit (Vorder-/Rückseite):** Board-Konvention im Bereich „Post Card Campaign": pro räumlicher Gruppe liegt die **obere Reihe = Vorderseiten**, die **untere Reihe = Rückseiten**. Der Sync legt nur Fronts als Assets an und hängt die Rückseiten der Gruppe als Attachment-Feld **„Back Preview"** an jedes Front-Asset (räumlich nächste zuerst). Die App zeigt auf der Karte links unten einen **RÜCKSEITE-Toggle** (Front → Back 1 → Back 2 → Front); Postcard-Karten rendern mit `object-fit: contain` (Querformat komplett sichtbar). First trial — bewusst rudimentär.
 
-**Neues Format hinzufügen:** Bereich mit großer Überschrift in Figma anlegen (im „Creative Review"-Node) → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern. (Für „Band photos" und „Branding Shots" sind die Board-Überschriften schon da.)
+**Video-Besonderheit (kein Figma, eigene Upload-Seite):** Videos lassen sich nicht wie Bilder auf dem Board platzieren, deshalb hat `video` `figma: false` gesetzt — `sync`/`layout`/`baseline`/`boardmap`/`probe` lehnen dieses Format mit einer klaren Fehlermeldung ab statt einen nicht-existenten Board-Bereich zu suchen, und `syncall` überspringt es beim automatischen Cron-Durchlauf. Stattdessen: `video/index.html` lässt Flo/Robert ein Video hochladen und dabei kategorisieren (siehe unten), lädt die Datei direkt zu Supabase Storage hoch (Bucket `video-uploads`, Signed-Upload-URL — die Bytes laufen nie durch die Edge Function) und legt das Asset danach über die bestehende `/ingest`-Route an. Reviewer sehen die Videos im VIDEO-Tab der Haupt-App; die Karte rendert `<video controls>` statt `<img>`.
+
+**Video-Kategorisierung (3-stufig):** Directory (Shop / Branding / Ads) → Content-Art → Format — als drei verlinkte Tabellen **in der Video-Base selbst** (`Video Directories` → `Video Content-Arten` → `Video Formate`, echte Airtable-Links, kein Soft-Key-Umweg wie bei Models/Expressions/Depictions, weil hier keine Basis-Grenze zu überwinden ist). Jonas/Max pflegen Content-Art/Format-Werte direkt in Airtable — kein Redeploy nötig, die Upload-Seite liest sie live über `GET /videocats`.
+
+**Neues Format hinzufügen:** Bereich mit großer Überschrift in Figma anlegen (im „Creative Review"-Node) → Airtable-Base klonen (Assets + Reviews, Achsen-Felder anpassen) → `FORMATS`-Eintrag in der Edge Function + `FMT`-Eintrag in `index.html` → Airtable-Token um die neue Base erweitern. (Für „Band photos" und „Branding Shots" sind die Board-Überschriften schon da.) Für ein Format ganz ohne Figma-Gegenstück (wie video): zusätzlich `figma: false` setzen und `column: []` lassen.
 
 ## Rollen & Reviewer
 
@@ -77,6 +83,9 @@ Jeder Reviewer hat eine eigene Queue (`/queue?reviewer=Name`) — alle bewerten 
 | `POST /baseline?format=F` | Aktuellen Board-Stand einfrieren (Sync überspringt ihn) |
 | `GET /rollup` | Trefferquoten pro Entität + bestätigte Kritik-Flags |
 | `GET /layout` · `GET /probe` · `GET /render` | Diagnose |
+| `GET /videocats` | 3-stufige Video-Kategorien (Directory→Content-Art→Format) mit Parent-IDs, für `video/index.html` |
+| `POST /uploadurl?format=video` | Mintet eine Supabase-Storage Signed-Upload-URL `{filename}` → `{path,token,signedUrl}` |
+| `POST /ingest?format=F` | Assets aus Bild-/Video-URLs anlegen, ohne Figma — bei video zusätzlich `directoryId`/`contentArtId`/`formatId` im Item |
 
 Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
 
@@ -126,12 +135,14 @@ Zweite App auf derselben Edge Function: **Artwork-Ranking fürs Produktdesign** 
 - **Airtable-Attachment-URLs laufen ab** (~2 h). Die App lädt die Queue live, daher unkritisch — aber Bild-URLs nie irgendwo statisch ablegen.
 - **Sync-Limit:** Edge Functions haben 150 s Idle-Timeout. `?limit=100` pro Lauf ist sicher; einfach wiederholen.
 - **Board-Layout:** Die Bereichs-Erkennung erwartet große Überschriften. Neue Karteien/Spalten neben oder unter einem Review-Bereich brauchen ebenfalls eine große Überschrift, sonst werden ihre Bilder dem Bereich zugerechnet.
+- **Video-Storage:** Bucket `video-uploads` (Supabase Storage, public, 500 MB/Datei-Limit, nur `video/*`) ist getrennt vom älteren, ungenutzten Bucket `app` — nicht verwechseln. Kein RLS-Policy nötig: Signed-Upload-URLs (`POST /uploadurl`) sind laut Supabase-Doku „ohne weitere Authentifizierung" nutzbar, der Token selbst ist die Autorisierung.
 
 ## Airtable-Referenz
 
 - Statics-Base `appKktIMvTU1AqOEN` — Models `tblRUZ99u9ApeOdMu`, Expressions `tbl1RQkCERHpz8Nug`, Depictions `tbly4pX6YMtAfHYyz`, Assets `tbl2rpHgH2D0hebQ4`, Reviews `tbltxjO4jLxWbqTRy`, Regeln `tblZIQ6vTEQGwD2fn`
 - Memes-Base `appW9B8mQaT7krmg2` — Assets `tblQIYC1QRsU9Xp1r`, Reviews `tblHCqfdQ6OzHHCdi`
 - Branding-Base `appPaEX5g0qOOz5L4` — Assets `tblN6h6bLwkaGWsUo`, Reviews `tblXNaFF8fy5xdugq`
+- Video-Base „Creative Review — Videos" `app0okYhD4BJgoEmd` — Assets `tblEzH1d4HaLZG1Ou`, Reviews `tblmFLgyb01eleis5`, Video Directories `tblQwBe2dbus0XYji`, Video Content-Arten `tblQ94rfDyRK3vA7g`, Video Formate `tbl8WQ2kIAZO5mTg0`
 - **Artwork Review:** SCA PRODUCT-LAB `appJr0gEyT3BUVr0A` — Artworks `tbl1LaUaqitf5OMyW` (Queue-View `viwjoPLvEwk7aFl6z` „⭐ 1. Open for ranking"; Votes in „Vuven Rank"/„Max Rank", App-Spalten „App Review Ergebnis/Datum"), Artwork Reviews `tblByFgL2zJbJG3cP`, Artwork Rules `tblgRflphUBCOOt4o`. **Der `AIRTABLE_PAT` in Supabase muss diese Base einschließen!** (Die Tabelle „Sketches" `tbl7RrV9rtGqM0zgb` trägt noch ungenutzte App-Spalten aus der ersten Iteration — bei Bedarf löschbar.)
 - Figma-Board `pPSeVQKzDjuHv3Gf8wDp3u`, Review-Bereich Node `3156:787` („Creative Review")
 

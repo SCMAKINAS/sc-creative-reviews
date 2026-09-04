@@ -37,6 +37,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .card{position:absolute;inset:13px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;touch-action:none;cursor:grab}
 .photo{flex:1;position:relative;display:flex;align-items:center;justify-content:center;background:#0B0B0B;min-height:0;cursor:zoom-in}
 .photo img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.photo video{width:100%;height:100%;object-fit:contain;display:block;touch-action:auto;background:#000}
 .photo .zoomtip{position:absolute;right:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone2);padding:3px 7px;border-radius:3px;z-index:2}
 .photo .backbtn{position:absolute;left:8px;bottom:8px;font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;color:var(--bone);padding:4px 8px;border-radius:3px;z-index:3;cursor:pointer}
 .photo .backbtn.on{background:var(--blood);border-color:var(--blood);color:#fff}
@@ -114,7 +115,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
         <button data-r="Claude" data-role="Shadow">CLAUDE<small>AI-SHADOW</small></button>
       </div>
     </div>
-    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">SHOOTING</button><button data-f="memes">MEMES</button><button data-f="branding">BRANDING</button><button data-f="postcards">POSTCARDS</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
+    <div class="bar"><div class="fmtsw" id="fmtsw"><button data-f="statics">SHOOTING</button><button data-f="memes">MEMES</button><button data-f="branding">BRANDING</button><button data-f="postcards">POSTCARDS</button><button data-f="video">VIDEO</button></div><span id="phase">REVIEW</span><div class="prog"><i id="prog"></i></div><span id="cnt"></span></div>
     <div id="view"></div>
   </div>
   <div class="keys" id="keys"></div>
@@ -153,7 +154,11 @@ var FMT={
  postcards:{label:'POSTCARDS',axes:['Vibe','Brand','Umsetzung'],fail:{
   Vibe:['Claim zieht nicht','Motiv zu schwach','Kein Scroll-Stop im Briefkasten','Zu brav — kein Edge','Zu gestellt','Falsche Energie'],
   Brand:['Nicht Stay Cold','Logo fehlt/unkenntlich','Zu Mainstream','Farbwelt off','Claim passt nicht zur Marke'],
-  Umsetzung:['Text schlecht lesbar','Layout unruhig','Druck/Rand/Auflösung','AI-Artefakte','Gutschein/QR-Platzierung','Front & Rückseite passen nicht zusammen']}}};
+  Umsetzung:['Text schlecht lesbar','Layout unruhig','Druck/Rand/Auflösung','AI-Artefakte','Gutschein/QR-Platzierung','Front & Rückseite passen nicht zusammen']}},
+ video:{label:'VIDEO',axes:['Vibe','Brand','Umsetzung'],fail:{
+  Vibe:['Kein Mood','Zu soft','Zu gestellt','Stock-Look','Falsche Energie'],
+  Brand:['Nicht Stay Cold','Logo fehlt/unkenntlich','Zu clean','Zu Mainstream','Farbwelt off'],
+  Umsetzung:['Schnitt/Pacing off','Ton schlecht','Auflösung/Qualität schlecht','AI-Artefakte','Format falsch (Crop/Ratio)','Zu lang — zieht sich']}}};
 function cfg(){return FMT[st.format]||FMT.statics}
 
 var SERVER_TAGS={};
@@ -241,7 +246,11 @@ function card(){
  var stage=$('stage'),e=document.createElement('div');e.className='card'+(st.format==='postcards'?' pc':'');
  e.dataset.side='0';
  var sub=[a.produkt,a.colorway].filter(Boolean).join(' · ')||(st.reviewer+' · '+st.role.toUpperCase());
- e.innerHTML='<div class="photo"><img id="cardimg" src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span><div class="stamp"></div></div>'+
+ var isVid=a.kind==='video';
+ e.innerHTML='<div class="photo">'+
+  (isVid?'<video id="cardvid" src="'+esc(a.image)+'" controls playsinline preload="metadata"></video>'
+        :'<img id="cardimg" src="'+esc(a.image)+'" alt=""><span class="zoomtip">TIPP = ZOOM</span>')+
+  '<div class="stamp"></div></div>'+
   '<div class="meta"><div><div class="mid">'+esc(a.id)+'</div><div class="msub">'+esc(sub)+'</div></div>'+
   (a.figma?'<a href="'+esc(a.figma)+'" target="_blank" rel="noopener">FIGMA</a>':'')+'</div>';
  stage.appendChild(e);st.t0=Date.now();drag(e,a);
@@ -267,19 +276,24 @@ function card(){
    else{ci.src=a.backImages[side-1];a._zoomSrc=(a.backImagesFull&&a.backImagesFull[side-1])||a.backImages[side-1];bb.classList.add('on')}
    bb.textContent=lbl(side)};
  }
- // Volle Aufloesung im Hintergrund nachladen und unbemerkt einwechseln
- if(a.imageFull&&a.imageFull!==a.image){
+ // Volle Aufloesung im Hintergrund nachladen und unbemerkt einwechseln (Video
+ // hat kein Thumb/Full-Paar und darf waehrend der Wiedergabe nicht die src wechseln).
+ if(!isVid&&a.imageFull&&a.imageFull!==a.image){
   var hi=new Image();hi.src=a.imageFull;
   hi.onload=function(){var ci=e.querySelector('#cardimg');if(ci&&cur()===a&&e.dataset.side==='0')ci.src=a.imageFull};
  }
- // Naechste zwei Karten vorladen (Thumbs)
+ // Naechste zwei Karten vorladen (Thumbs) — Video ueberspringen, new Image()
+ // auf eine Videodatei laedt nur unnoetig Bytes ohne Nutzen.
  [1,2].forEach(function(off){var nx=st.queue[st.idx+off];
-  if(nx&&nx.image){var p=new Image();p.src=nx.image}})}
+  if(nx&&nx.image&&nx.kind!=='video'){var p=new Image();p.src=nx.image}})}
 
 function drag(e,a){
  var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
  e.addEventListener('pointerdown',function(ev){
-  if(ev.target.closest('a')||V.querySelector('.sheet'))return;
+  // Video-Controls (Play/Pause/Scrubber) sollen die Karte nicht mitziehen —
+  // dadurch bleibt 'on' fuer diese Interaktion false, pointerup/-move no-open
+  // automatisch (auch der Tap-zu-Zoom-Check unten ist dadurch schon mit-erledigt).
+  if(ev.target.closest('a')||ev.target.closest('video')||V.querySelector('.sheet'))return;
   on=true;moved=false;sx=ev.clientX;sy=ev.clientY;pt0=Date.now();dt=ev.target;
   try{e.setPointerCapture(ev.pointerId)}catch(x){}e.style.transition='none'});
  e.addEventListener('pointermove',function(ev){if(!on)return;dx=ev.clientX-sx;

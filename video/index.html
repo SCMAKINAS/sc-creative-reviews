@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stay Cold · Video Upload</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0E0E0E;--ink2:#1C1C1C;--bone:#EDE8DF;--bone2:#B8B2A7;--blood:#B01F1F;--ok:#3E8E5A;--line:#333}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#050505;color:var(--bone);font-family:'DM Sans',system-ui,sans-serif}
+body{display:flex;justify-content:center;padding:14px 12px 28px;min-height:100vh}
+#app{width:100%;max-width:420px}
+button,input,select{font-family:'DM Sans',system-ui,sans-serif}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.shell{background:var(--ink);border:1px solid #2E2E2E;border-radius:14px;overflow:hidden}
+.head{background:#000;padding:11px 13px;border-bottom:1px solid #2E2E2E}
+.logo{font-family:'Oswald','Arial Narrow',sans-serif;font-weight:700;font-size:14px;letter-spacing:.14em;line-height:1}
+.logo small{display:block;font-size:8px;letter-spacing:.2em;color:var(--bone2);font-weight:500;margin-top:3px}
+.body{padding:15px}
+h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:.1em;margin:0 0 4px}
+.hint{font-size:9.5px;color:var(--bone2);line-height:1.5;margin-bottom:14px}
+label{display:block;font-size:9px;font-weight:700;letter-spacing:.09em;color:var(--bone2);margin:14px 0 6px}
+label:first-of-type{margin-top:0}
+select,input[type=text],input[type=password]{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:10px 11px;font-size:12px}
+select:disabled{opacity:.35}
+select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23B8B2A7'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.drop{border:1.5px dashed var(--line);border-radius:9px;padding:22px 12px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--blood);background:#1a1010}
+.drop.has{border-color:#2F5F44;background:#101a13}
+.drop b{display:block;font-family:'Oswald','Arial Narrow',sans-serif;font-size:12px;letter-spacing:.08em;margin-bottom:4px}
+.drop span{font-size:9.5px;color:var(--bone2)}
+.drop input{display:none}
+video.preview{width:100%;max-height:200px;border-radius:7px;margin-top:10px;display:none;background:#000}
+.bar{height:4px;background:#262626;border-radius:2px;overflow:hidden;margin-top:12px;display:none}
+.bar i{display:block;height:100%;width:0;background:var(--blood);transition:width .2s}
+.wide{width:100%;background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:9px;padding:13px;font-size:11px;font-weight:700;letter-spacing:.07em;cursor:pointer;margin-top:16px}
+.wide:disabled{opacity:.35;cursor:not-allowed}
+.wide.ok{background:#16301C;border-color:#2F5F44;color:#9BE0B4}
+.toast{margin-top:11px;font-size:10.5px;line-height:1.5;padding:9px 11px;border-radius:7px;display:none}
+.toast.err{display:block;background:#2a1414;border:1px solid var(--blood);color:#f0b8b8}
+.toast.ok{display:block;background:#16301C;border:1px solid #2F5F44;color:#9BE0B4}
+.keyask input{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:11px;font-size:12px;text-align:center;letter-spacing:.05em;margin:10px 0}
+.loadbox{padding:40px 13px;text-align:center;font-size:10px;letter-spacing:.08em;color:var(--bone2)}
+@media(min-width:760px){#app{max-width:480px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="shell">
+    <div class="head"><div class="logo">STAY COLD<small>VIDEO UPLOAD</small></div></div>
+    <div id="view"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
+var SB_ROOT="https://ekiwwjzmiywaxvxdhzat.supabase.co";
+var KEY=null;
+var CATS=null,file=null;
+
+var V=document.getElementById('view');
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function api(path,opts){opts=opts||{};
+ opts.headers=Object.assign({'x-review-key':KEY,'content-type':'application/json'},opts.headers||{});
+ return fetch(API+path,opts).then(function(r){
+  return r.json().then(function(b){if(!r.ok)throw new Error(b.error||r.status);return b})})}
+
+function cleanKey(v){return String(v||'').replace(/[^A-Za-z0-9_-]/g,'')}
+function initKey(){
+ var q=new URLSearchParams(location.search);
+ if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
+ else KEY=cleanKey(localStorage.getItem('scr-key'));
+ if(!KEY){askKey();return false}
+ return true}
+function askKey(){
+ V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
+ '<div class="hint">Derselbe Key wie in der Review-App.</div>'+
+ '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
+ $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
+ $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
+
+function load(){
+ V.innerHTML='<div class="loadbox">LADE KATEGORIEN …</div>';
+ api('/videocats').then(function(d){CATS=d;form()}).catch(function(e){
+  var m=String(e.message);
+  if(m.indexOf('unauthorized')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
+  else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
+
+function opts(list,ph){
+ return '<option value="">'+esc(ph)+'</option>'+
+  list.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')}
+
+function form(){
+ file=null;
+ V.innerHTML='<div class="body">'+
+  '<h4>NEUES VIDEO</h4>'+
+  '<div class="hint">Kategorie wählen, Datei auswählen oder reinziehen, hochladen. Erscheint danach im VIDEO-Tab der Review-App.</div>'+
+  '<label>DIRECTORY</label><select id="dir">'+opts(CATS.directories,'Wählen …')+'</select>'+
+  '<label>CONTENT-ART</label><select id="ca" disabled>'+opts([],'— erst Directory wählen —')+'</select>'+
+  '<label>FORMAT</label><select id="fmt" disabled>'+opts([],'— erst Content-Art wählen —')+'</select>'+
+  '<label>DATEI</label>'+
+  '<div class="drop" id="drop"><b>DATEI WÄHLEN ODER REINZIEHEN</b><span>MP4, MOV, WebM — bis 500 MB</span>'+
+   '<input type="file" id="file" accept="video/*"></div>'+
+  '<video class="preview" id="prev" controls muted></video>'+
+  '<div class="bar" id="bar"><i id="bari"></i></div>'+
+  '<button class="wide" id="go" disabled>HOCHLADEN</button>'+
+  '<div class="toast" id="toast"></div>'+
+  '</div>';
+
+ var dirSel=$('dir'),caSel=$('ca'),fmtSel=$('fmt');
+ dirSel.onchange=function(){
+  var kids=CATS.contentArts.filter(function(c){return c.directoryId===dirSel.value});
+  caSel.innerHTML=opts(kids,kids.length?'Wählen …':'— keine angelegt —');
+  caSel.disabled=!dirSel.value;
+  fmtSel.innerHTML=opts([],'— erst Content-Art wählen —');fmtSel.disabled=true;
+  checkReady()};
+ caSel.onchange=function(){
+  var kids=CATS.formats.filter(function(f){return f.contentArtId===caSel.value});
+  fmtSel.innerHTML=opts(kids,kids.length?'Wählen …':'— keine angelegt —');
+  fmtSel.disabled=!caSel.value;
+  checkReady()};
+ fmtSel.onchange=checkReady;
+
+ var drop=$('drop'),fileInput=$('file'),prev=$('prev');
+ drop.onclick=function(){fileInput.click()};
+ fileInput.onchange=function(){if(fileInput.files[0])setFile(fileInput.files[0])};
+ ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over')})});
+ ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over')})});
+ drop.addEventListener('drop',function(e){var f=e.dataTransfer.files[0];if(f)setFile(f)});
+
+ function setFile(f){
+  file=f;drop.classList.add('has');
+  drop.querySelector('b').textContent=f.name;
+  drop.querySelector('span').textContent=Math.round(f.size/1024/1024*10)/10+' MB';
+  prev.src=URL.createObjectURL(f);prev.style.display='block';
+  checkReady()}
+
+ function checkReady(){
+  $('go').disabled=!(file&&dirSel.value&&caSel.value&&fmtSel.value)}
+
+ $('go').onclick=function(){upload(dirSel.value,caSel.value,fmtSel.value)}}
+
+function toast(msg,ok){var t=$('toast');t.className='toast '+(ok?'ok':'err');t.textContent=msg}
+
+function upload(directoryId,contentArtId,formatId){
+ var go=$('go'),bar=$('bar'),bari=$('bari');
+ go.disabled=true;go.textContent='LAEDT HOCH …';bar.style.display='block';toast('',false);$('toast').className='toast';
+
+ api('/uploadurl?format=video',{method:'POST',body:JSON.stringify({filename:file.name})})
+  .then(function(d){
+   return new Promise(function(resolve,reject){
+    var xhr=new XMLHttpRequest();
+    xhr.open('PUT',d.signedUrl);
+    xhr.setRequestHeader('content-type',file.type||'video/mp4');
+    xhr.upload.onprogress=function(e){if(e.lengthComputable)bari.style.width=Math.round(e.loaded/e.total*100)+'%'};
+    xhr.onload=function(){xhr.status>=200&&xhr.status<300?resolve(d.path):reject(new Error('Storage-Upload '+xhr.status))};
+    xhr.onerror=function(){reject(new Error('Storage-Upload fehlgeschlagen (Netzwerk)'))};
+    xhr.send(file)})})
+  .then(function(path){
+   var url=SB_ROOT+'/storage/v1/object/public/video-uploads/'+path;
+   return api('/ingest?format=video',{method:'POST',body:JSON.stringify({
+    items:[{url:url,directoryId:directoryId,contentArtId:contentArtId,formatId:formatId}]})})})
+  .then(function(){
+   go.textContent='HOCHGELADEN ✓';go.className='wide ok';
+   toast('Video liegt im VIDEO-Tab der Review-App bereit.',true);
+   setTimeout(form,1600)})
+  .catch(function(e){
+   go.disabled=false;go.textContent='HOCHLADEN';bar.style.display='none';bari.style.width='0';
+   toast('Fehlgeschlagen: '+String(e.message),false)})}
+
+if(initKey())load();
+})();
+</script>
+</body>
+</html>

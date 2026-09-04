@@ -1,16 +1,21 @@
 // Stay Cold · Creative Review — Figma Board -> Airtable, multi-format
 // Auth: eigener Header x-review-key (deshalb verify_jwt=false).
 //
-// Formate (?format=statics|memes|branding|postcards, Default statics): eigener Board-Bereich,
-// eigene Airtable-Base, eigene Review-Achsen. Siehe FORMATS unten.
+// Formate (?format=statics|memes|branding|postcards|video, Default statics): eigener
+// Board-Bereich, eigene Airtable-Base, eigene Review-Achsen. Siehe FORMATS unten.
+// video hat KEIN Figma-Gegenstueck (figma:false) — Assets kommen ausschliesslich
+// per Upload/Ingest, sync/layout/baseline/boardmap lehnen dieses Format klar ab.
 //
 // ROUTEN
 //   POST /sync     Review-Bereich ziehen, nach Board-Struktur gruppieren,
 //                  lose Bilder raeumlich clustern, Assets anlegen (?limit=N, ?gap=N,
 //                  ?cache=Min — Figma-Antworten kommen aus dem Postgres-Cache)
-//   POST /syncall  alle Formate in einem Durchgang (max. 2 Figma-Calls total)
+//   POST /syncall  alle Formate in einem Durchgang (max. 2 Figma-Calls total;
+//                  figma:false-Formate wie video werden uebersprungen)
 //   POST /ingest   Assets aus mitgelieferten Bild-URLs anlegen, OHNE Figma
-//                  {items:[{url,nodeId?,backUrls?,cluster?,position?}],batch?}
+//                  {items:[{url,nodeId?,backUrls?,cluster?,position?,
+//                  directoryId?,contentArtId?,formatId?}],batch?}
+//                  (die 3 *Id-Felder sind Video-Kategorisierung, siehe /videocats)
 //   POST /ingestb64  wie /ingest, aber Base64-Bilder via Airtable-Content-API
 //                  (?quiet=1 = kein Ping) {items:[{b64,filename?,nodeId?,backB64s?,...}],batch?}
 //   GET  /probe    Diagnose: Figma-Fetch des Review-Bereichs messen
@@ -26,6 +31,11 @@
 //   GET  /failtags alle bekannten Fail-Tag-Optionen pro Achse
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
+//   GET  /videocats        3-stufige Video-Kategorien (Directory->Content-Art->Format)
+//                          mit Parent-IDs inline, fuer die Upload-Seite
+//   POST /uploadurl?format=video  mintet eine Supabase-Storage Signed-Upload-URL
+//                          {filename} -> {path,token,signedUrl} — Browser laedt die
+//                          Datei direkt zur signedUrl hoch (PUT), dann /ingest
 //
 // SONDERFORMAT ?format=artworks (Design-Team-Abstimmung, SCA PRODUCT-LAB):
 // KEIN Figma-Sync — bewertet werden ARTWORKS aus dem Airtable-View
@@ -47,6 +57,11 @@
 //   POST /addrule?format=artworks   Regel-Vorschlag programmatisch anlegen
 //                                   {regel, quelle?, bereich?, notizen?}
 
+// Nur fuer /uploadurl (Storage Signed-Upload-URL) -- der Rest der Function
+// bleibt bei rohem fetch() gegen Airtable/PostgREST, das offizielle SDK ist
+// hier die zuverlaessigere Wahl als ein von Hand nachgebauter Storage-Call.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const FIGMA_FILE = "pPSeVQKzDjuHv3Gf8wDp3u";
 // Der gesamte Review-Bereich als ein Node (Link von Jonas, 06.08.2026):
 // oben AI-Shootings (statics), unten Social Media (Memes, Band photos,
@@ -62,7 +77,16 @@ type Fmt = {
   axes: Record<string, string>; // Achse -> Fail-Feld
   prefix: string;               // Asset-ID-Praefix
   label: string;                // Anzeigename fuer Notifications
+  figma?: boolean;              // false = kein Board-Gegenstueck (sync/layout/baseline/boardmap lehnen ab). Default true.
 };
+// figma:false-Formate haben keinen Board-Bereich — sync/layout/baseline/boardmap
+// wuerden sonst mit einem verwirrenden 'Bereich "undefined" nicht gefunden' failen.
+function requireFigma(f: Fmt & { key: string }) {
+  if (f.figma === false) {
+    return json({ error: `format=${f.key} hat keinen Figma-Sync — nutze /ingest oder /ingestb64.` }, 400);
+  }
+  return null;
+}
 const FORMATS: Record<string, Fmt> = {
   statics: {
     base: "appKktIMvTU1AqOEN", assets: "tbl2rpHgH2D0hebQ4", reviews: "tbltxjO4jLxWbqTRy",
@@ -93,6 +117,26 @@ const FORMATS: Record<string, Fmt> = {
     axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
     prefix: "PCD", label: "Postcards",
   },
+  video: {
+    // Eigene Base ("Creative Review — Videos"), manueller Upload durch
+    // Flo/Robert -- kein Figma-Board-Bereich, deshalb figma:false und
+    // column:[] (wird dank requireFigma() nie ausgewertet). Kategorisierung
+    // laeuft NICHT ueber Cluster, sondern ueber die 3-stufigen Link-Felder
+    // Directory/Content-Art/Format (siehe /videocats).
+    base: "app0okYhD4BJgoEmd", assets: "tblEzH1d4HaLZG1Ou", reviews: "tblmFLgyb01eleis5",
+    column: [], figma: false,
+    axes: { Vibe: "Fail Vibe", Brand: "Fail Brand", Umsetzung: "Fail Umsetzung" },
+    prefix: "VID", label: "Video",
+  },
+};
+// Video-Kategorien: eigene Tabellen in der Video-Base, native Links (keine
+// Basis-Grenze zu ueberwinden wie bei Models/Expressions/Depictions -> echte
+// Airtable-Links statt Soft-Key-Strings). Hand-gepflegt durch Jonas/Max.
+const VIDEOCAT = {
+  base: FORMATS.video.base,
+  directories: "tblQwBe2dbus0XYji",
+  contentArts: "tblQ94rfDyRK3vA7g",
+  formats: "tbl8WQ2kIAZO5mTg0",
 };
 function fmtOf(req: Request): (Fmt & { key: string }) | null {
   const k = new URL(req.url).searchParams.get("format") ?? "statics";
@@ -391,7 +435,13 @@ async function boardColumn(f: Fmt, maxAgeMs = 120 * 60_000) {
 
 // ---------- Diagnose ----------
 async function probe(req: Request) {
-  const f = fmtOf(req) ?? { ...FORMATS.statics, key: "statics" };
+  // War frueher ein stiller Fallback auf statics bei unbekanntem/fehlendem
+  // format-Param -- das verschleierte Tippfehler und meldete figma:false-
+  // Formate (video) faelschlich als "Bereich nicht gefunden" statt klar
+  // abzulehnen. Jetzt explizit wie ueberall sonst.
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const guard = requireFigma(f); if (guard) return guard;
   const t0 = Date.now();
   const doc = await reviewRoot();
   const fetchMs = Date.now() - t0;
@@ -423,6 +473,7 @@ async function render(req: Request) {
 async function layout(req: Request) {
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
+  const guard = requireFigma(f); if (guard) return guard;
   const col = await boardColumn(f);
   if ("error" in col) return col.error;
   const rows = col.inCol!
@@ -440,6 +491,7 @@ async function sync(req: Request) {
 
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
+  const guard = requireFigma(f); if (guard) return guard;
   const maxAge = cacheTtl(req);
   mark(`format: ${f.key} (cache ${Math.round(maxAge / 60000)} min)`);
   mark("figma fetch start");
@@ -606,6 +658,7 @@ async function syncAll(req: Request) {
   const out: Record<string, any> = {};
   let created = 0;
   for (const key of Object.keys(FORMATS)) {
+    if (FORMATS[key].figma === false) continue; // z.B. video -- kein Board-Bereich, ewiger Error waere nur Rauschen
     const u = new URL(url.toString());
     u.searchParams.set("format", key);
     try {
@@ -661,6 +714,11 @@ async function ingest(req: Request) {
       "Pulled at": new Date().toISOString(),
       Preview: [{ url: u }],
       ...(backs.length ? { "Back Preview": backs } : {}),
+      // Video-Kategorisierung (3-stufig, siehe /videocats) — Link-Felder,
+      // je eine Record-ID. Bei anderen Formaten schlicht ungenutzt.
+      ...(it?.directoryId ? { Directory: [String(it.directoryId)] } : {}),
+      ...(it?.contentArtId ? { "Content-Art": [String(it.contentArtId)] } : {}),
+      ...(it?.formatId ? { Format: [String(it.formatId)] } : {}),
     } });
   }
   if (!rows.length) return json({ created: 0, skipped: items.length, note: "Alles bereits vorhanden." });
@@ -794,6 +852,7 @@ async function ingestB64(req: Request) {
 async function boardmap(req: Request) {
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
+  const guard = requireFigma(f); if (guard) return guard;
   const maxAge = cacheTtl(req);
   const col = await boardColumn(f, maxAge);
   if ("error" in col) return col.error;
@@ -832,6 +891,48 @@ async function setNodes(req: Request) {
   let n = 0;
   for (let i = 0; i < updates.length; i += 10) n += await atPatch(f.base, f.assets, updates.slice(i, i + 10));
   return json({ patched: n, uebersprungen: items.length - updates.length });
+}
+
+// ---------- Video-Kategorien (3-stufig: Directory -> Content-Art -> Format) ----------
+// Fuer die Video-Upload-Seite: ein Fetch liefert alle 3 Ebenen mit Parent-IDs,
+// damit das Frontend kaskadierende <select>s bauen kann. Jonas/Max pflegen die
+// Listen direkt in Airtable -- neue Werte brauchen keinen Redeploy.
+async function videoCategories() {
+  const [dirs, cas, fmts] = await Promise.all([
+    atAll(VIDEOCAT.base, VIDEOCAT.directories),
+    atAll(VIDEOCAT.base, VIDEOCAT.contentArts),
+    atAll(VIDEOCAT.base, VIDEOCAT.formats),
+  ]);
+  return json({
+    directories: dirs.map((r) => ({ id: r.id, name: r.fields["Name"] ?? "" })),
+    contentArts: cas.map((r) => ({
+      id: r.id, name: r.fields["Name"] ?? "", directoryId: r.fields["Directory"]?.[0] ?? null,
+    })),
+    formats: fmts.map((r) => ({
+      id: r.id, name: r.fields["Name"] ?? "", contentArtId: r.fields["Content-Art"]?.[0] ?? null,
+    })),
+  });
+}
+
+// ---------- Video-Upload: Signed URL (Supabase Storage) ----------
+// Mintet server-seitig (Service-Role, umgeht RLS ohnehin) eine Signed-Upload-
+// URL -- laut Supabase-Doku "ohne weitere Authentifizierung" nutzbar, der
+// Token IST die Autorisierung, keine zusaetzliche RLS-Policy noetig. Der
+// Browser laedt danach die Datei direkt zur signedUrl hoch (PUT); die Bytes
+// laufen NIE durch diese Edge Function (150s-Idle-Timeout waere fuer Video
+// riskant). Body: {filename}.
+async function uploadUrl(req: Request) {
+  const f = fmtOf(req);
+  if (!f || f.key !== "video") return json({ error: "nur format=video unterstuetzt" }, 400);
+  const b = await req.json().catch(() => ({}));
+  const filename = String(b?.filename ?? "").trim();
+  if (!filename) return json({ error: "filename fehlt" }, 400);
+  const ext = (filename.split(".").pop() || "mp4").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
+  const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${ext}`;
+  const sb = createClient(SB_URL, SB_KEY);
+  const { data, error } = await sb.storage.from("video-uploads").createSignedUploadUrl(path);
+  if (error) return json({ error: `Supabase Storage: ${String(error.message ?? error)}` }, 500);
+  return json({ path: data.path, token: data.token, signedUrl: data.signedUrl });
 }
 
 // ---------- Vokabular ----------
@@ -930,6 +1031,9 @@ async function queue(req: Request) {
       // Thumbnail zuerst (schnell), volle Aufloesung fuer Zoom/Nachladen.
       image: r.fields["Preview"]?.[0]?.thumbnails?.large?.url ?? r.fields["Preview"]?.[0]?.url ?? null,
       imageFull: r.fields["Preview"]?.[0]?.url ?? null,
+      // Von Airtables eigenem MIME-Type abgeleitet (nicht vom Format-Key) --
+      // so weiss die App zuverlaessig, ob <video> statt <img> gerendert werden muss.
+      kind: String(r.fields["Preview"]?.[0]?.type ?? "").startsWith("video/") ? "video" : "image",
       figma: r.fields["Figma Link"] ?? null,
       // Postcards: Rueckseiten der Gruppe (naechste zuerst); leer bei anderen Formaten.
       backImages: (r.fields["Back Preview"] ?? []).map((a: any) => a?.thumbnails?.large?.url ?? a?.url).filter(Boolean),
@@ -1072,6 +1176,7 @@ async function failtags(req: Request) {
 async function baseline(req: Request) {
   const f = fmtOf(req);
   if (!f) return json({ error: "unbekanntes format" }, 400);
+  const guard = requireFigma(f); if (guard) return guard;
   const col = await boardColumn(f);
   if ("error" in col) return col.error;
   const existing = await atAll(f.base, f.assets, "fields[]=Figma Node ID");
@@ -1586,6 +1691,8 @@ Deno.serve(async (req) => {
     if (route === "setnodes" && req.method === "POST") return await setNodes(req);
     if (route === "ingest" && req.method === "POST") return await ingest(req);
     if (route === "ingestb64" && req.method === "POST") return await ingestB64(req);
+    if (route === "videocats") return await videoCategories();
+    if (route === "uploadurl" && req.method === "POST") return await uploadUrl(req);
     if (route === "probe") return await probe(req);
     if (route === "layout") return await layout(req);
     if (route === "render") return await render(req);
