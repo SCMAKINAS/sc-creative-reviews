@@ -67,7 +67,7 @@ var SB_ROOT="https://ekiwwjzmiywaxvxdhzat.supabase.co";
 // keine Reviewer), die sollen keinen Key-Screen sehen. Selber Key wie die
 // ?key=-Links, die im Team ohnehin schon offen herumgereicht werden.
 var KEY="547895645621236548899654123654563214779896";
-var CATS=null,file=null;
+var CATS=null,file=null,busy=false;
 
 var V=document.getElementById('view');
 function $(id){return document.getElementById(id)}
@@ -89,7 +89,7 @@ function opts(list,ph,allowNew){
   (allowNew===false?'':'<option value="'+NEWOPT+'">+ Neu anlegen ...</option>')}
 
 function form(){
- file=null;
+ file=null;busy=false;
  V.innerHTML='<div class="body">'+
   '<h4>NEUES VIDEO</h4>'+
   '<div class="hint">Kategorie wählen, Datei auswählen oder reinziehen, hochladen. Erscheint danach im VIDEO-Tab der Review-App.</div>'+
@@ -154,11 +154,11 @@ function form(){
    fmtSel.value=newId;checkReady()});
 
  var drop=$('drop'),fileInput=$('file'),prev=$('prev');
- drop.onclick=function(){fileInput.click()};
- fileInput.onchange=function(){if(fileInput.files[0])setFile(fileInput.files[0])};
+ drop.onclick=function(){if(busy)return;fileInput.click()};
+ fileInput.onchange=function(){if(busy)return;if(fileInput.files[0])setFile(fileInput.files[0])};
  ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over')})});
  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over')})});
- drop.addEventListener('drop',function(e){var f=e.dataTransfer.files[0];if(f)setFile(f)});
+ drop.addEventListener('drop',function(e){if(busy)return;var f=e.dataTransfer.files[0];if(f)setFile(f)});
 
  function setFile(f){
   file=f;drop.classList.add('has');
@@ -169,6 +169,7 @@ function form(){
 
  function valid(v){return v&&v!==NEWOPT}
  function checkReady(){
+  if(busy){$('go').disabled=true;return}
   $('go').disabled=!(file&&valid(dirSel.value)&&valid(caSel.value)&&valid(fmtSel.value))}
 
  $('go').onclick=function(){upload(dirSel.value,caSel.value,fmtSel.value)}}
@@ -176,8 +177,13 @@ function form(){
 function toast(msg,ok){var t=$('toast');t.className='toast '+(ok?'ok':'err');t.textContent=msg}
 
 function upload(directoryId,contentArtId,formatId){
+ if(busy)return;
+ busy=true;
  var go=$('go'),bar=$('bar'),bari=$('bari');
+ var lockEls=[$('dir'),$('ca'),$('fmt')],dropEl=$('drop');
  go.disabled=true;go.textContent='LAEDT HOCH …';bar.style.display='block';toast('',false);$('toast').className='toast';
+ lockEls.forEach(function(el){el.disabled=true});
+ dropEl.style.pointerEvents='none';dropEl.style.opacity='.5';
 
  api('/uploadurl?format=video',{method:'POST',body:JSON.stringify({filename:file.name})})
   .then(function(d){
@@ -198,7 +204,10 @@ function upload(directoryId,contentArtId,formatId){
    toast('Video liegt im VIDEO-Tab der Review-App bereit.',true);
    setTimeout(form,1600)})
   .catch(function(e){
+   busy=false;
    go.disabled=false;go.textContent='HOCHLADEN';bar.style.display='none';bari.style.width='0';
+   lockEls.forEach(function(el){el.disabled=false});
+   dropEl.style.pointerEvents='';dropEl.style.opacity='';
    toast('Fehlgeschlagen: '+String(e.message),false)})}
 
 load();
