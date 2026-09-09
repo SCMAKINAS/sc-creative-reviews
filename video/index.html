@@ -160,11 +160,16 @@ function form(){
  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over')})});
  drop.addEventListener('drop',function(e){if(busy)return;var f=e.dataTransfer.files[0];if(f)setFile(f)});
 
+ var ALLOWED_TYPES=['video/mp4','video/quicktime','video/webm','video/x-m4v','video/x-matroska'];
  function setFile(f){
+  if(f.type&&ALLOWED_TYPES.indexOf(f.type)===-1){
+   toast('Dateityp "'+f.type+'" wird nicht unterstuetzt. Bitte als MP4, MOV, WebM, M4V oder MKV exportieren.',false);
+   return}
   file=f;drop.classList.add('has');
   drop.querySelector('b').textContent=f.name;
   drop.querySelector('span').textContent=Math.round(f.size/1024/1024*10)/10+' MB';
   prev.src=URL.createObjectURL(f);prev.style.display='block';
+  toast('',false);$('toast').className='toast';
   checkReady()}
 
  function valid(v){return v&&v!==NEWOPT}
@@ -192,7 +197,11 @@ function upload(directoryId,contentArtId,formatId){
     xhr.open('PUT',d.signedUrl);
     xhr.setRequestHeader('content-type',file.type||'video/mp4');
     xhr.upload.onprogress=function(e){if(e.lengthComputable)bari.style.width=Math.round(e.loaded/e.total*100)+'%'};
-    xhr.onload=function(){xhr.status>=200&&xhr.status<300?resolve(d.path):reject(new Error('Storage-Upload '+xhr.status))};
+    xhr.onload=function(){
+     if(xhr.status>=200&&xhr.status<300){resolve(d.path);return}
+     var msg='Storage-Upload '+xhr.status;
+     try{var b=JSON.parse(xhr.responseText);if(b&&b.message)msg=b.message}catch(ignore){}
+     reject(new Error(msg))};
     xhr.onerror=function(){reject(new Error('Storage-Upload fehlgeschlagen (Netzwerk)'))};
     xhr.send(file)})})
   .then(function(path){
