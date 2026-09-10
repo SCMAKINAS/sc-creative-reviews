@@ -38,6 +38,8 @@
 //   POST /uploadurl?format=video  mintet eine Supabase-Storage Signed-Upload-URL
 //                          {filename} -> {path,token,signedUrl} — Browser laedt die
 //                          Datei direkt zur signedUrl hoch (PUT), dann /ingest
+//   POST /storagegc?format=video  verwaiste Storage-Objekte loeschen (kein Asset zeigt
+//                          mehr darauf; juenger als 60 Min bleibt stehen) — ?dry=1 zeigt nur
 //
 // SONDERFORMAT ?format=artworks (Design-Team-Abstimmung, SCA PRODUCT-LAB):
 // KEIN Figma-Sync — bewertet werden ARTWORKS aus dem Airtable-View
@@ -963,6 +965,70 @@ async function uploadUrl(req: Request) {
   return json({ path: data.path, token: data.token, signedUrl: data.signedUrl });
 }
 
+// ---------- Video-Storage: verwaiste Objekte loeschen ----------
+// Loescht Objekte im Bucket video-uploads, auf die kein Asset mehr zeigt
+// (Asset geloescht/Test, Datei blieb liegen). Verknuepfung Asset -> Objekt
+// laeuft ueber den Dateinamen: /ingest gibt Airtable die Storage-URL, Airtable
+// rehostet und uebernimmt das letzte URL-Segment (uuid.ext) als Attachment-
+// Dateinamen — ein Basename-Abgleich reicht also. Schutz: Objekte juenger als
+// 60 Min bleiben stehen (Upload laeuft, /ingest folgt Sekunden spaeter).
+// Absichtlich NUR Orphans loeschbar — die Route haengt am geteilten Key aus
+// video/index.html, referenzierte Videos kann sie nicht anfassen. ?dry=1 zeigt nur.
+const VIDEO_BUCKET = "video-uploads";
+async function storageGc(req: Request) {
+  const f = fmtOf(req);
+  if (!f || f.key !== "video") return json({ error: "nur format=video unterstuetzt" }, 400);
+  const dry = new URL(req.url).searchParams.get("dry") === "1";
+  const assets = await atAll(f.base, f.assets, "fields[]=Preview");
+  const referenced = new Set<string>();
+  for (const r of assets) {
+    for (const a of r.fields["Preview"] ?? []) if (a?.filename) referenced.add(String(a.filename));
+  }
+  const bucket = createClient(SB_URL, SB_KEY).storage.from(VIDEO_BUCKET);
+  const listAll = async (prefix: string) => {
+    const out: any[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await bucket.list(prefix, { limit: 1000, offset });
+      if (error) throw new Error(`Storage list "${prefix}": ${error.message}`);
+      out.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  };
+  // Objekte liegen unter Datums-Ordnern (YYYY-MM-DD/uuid.ext); Ordner-Eintraege haben id=null.
+  const files: { path: string; size: number; created: string }[] = [];
+  for (const e of await listAll("")) {
+    if (e.id === null) {
+      for (const x of await listAll(e.name)) {
+        if (x.id !== null) files.push({ path: `${e.name}/${x.name}`, size: Number(x.metadata?.size ?? 0), created: x.created_at ?? "" });
+      }
+    } else {
+      files.push({ path: e.name, size: Number(e.metadata?.size ?? 0), created: e.created_at ?? "" });
+    }
+  }
+  const cutoff = Date.now() - 60 * 60_000;
+  const recent: string[] = [];
+  const orphans: typeof files = [];
+  let kept = 0;
+  for (const x of files) {
+    if (referenced.has(x.path.split("/").pop() ?? x.path)) kept++;
+    else if (x.created && Date.parse(x.created) > cutoff) recent.push(x.path);
+    else orphans.push(x);
+  }
+  if (!dry) {
+    for (let i = 0; i < orphans.length; i += 100) {
+      const { error } = await bucket.remove(orphans.slice(i, i + 100).map((x) => x.path));
+      if (error) throw new Error(`Storage remove: ${error.message}`);
+    }
+  }
+  const mb = (n: number) => Math.round(n / 1048576 * 10) / 10;
+  return json({
+    dry, scanned: files.length, referenced: kept, recentSkipped: recent,
+    [dry ? "wouldDelete" : "deleted"]: orphans.map((x) => ({ path: x.path, mb: mb(x.size) })),
+    freedMb: dry ? 0 : mb(orphans.reduce((s, x) => s + x.size, 0)),
+  });
+}
+
 // ---------- Vokabular ----------
 const KIND: Record<string, { t: string; p: string; label: string }> = {
   model: { t: T.models, p: "MOD", label: "Name / Kuerzel" },
@@ -1721,6 +1787,7 @@ Deno.serve(async (req) => {
     if (route === "ingestb64" && req.method === "POST") return await ingestB64(req);
     if (route === "videocats") return req.method === "POST" ? await videoCategoryAdd(req) : await videoCategories();
     if (route === "uploadurl" && req.method === "POST") return await uploadUrl(req);
+    if (route === "storagegc" && req.method === "POST") return await storageGc(req);
     if (route === "probe") return await probe(req);
     if (route === "layout") return await layout(req);
     if (route === "render") return await render(req);

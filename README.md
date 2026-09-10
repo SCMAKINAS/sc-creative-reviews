@@ -85,6 +85,7 @@ Jeder Reviewer hat eine eigene Queue (`/queue?reviewer=Name`) — alle bewerten 
 | `GET /layout` · `GET /probe` · `GET /render` | Diagnose |
 | `GET /videocats` | 3-stufige Video-Kategorien (Directory→Content-Art→Format) mit Parent-IDs, für `video/index.html` |
 | `POST /uploadurl?format=video` | Mintet eine Supabase-Storage Signed-Upload-URL `{filename}` → `{path,token,signedUrl}` |
+| `POST /storagegc?format=video` | Löscht verwaiste Storage-Objekte (kein Asset referenziert sie mehr; jünger als 60 Min bleibt stehen); `?dry=1` zeigt nur an |
 | `POST /ingest?format=F` | Assets aus Bild-/Video-URLs anlegen, ohne Figma — bei video zusätzlich `directoryId`/`contentArtId`/`formatId` im Item |
 
 Alle Aufrufe mit Header `x-review-key: <REVIEW_KEY>`.
@@ -135,7 +136,7 @@ Zweite App auf derselben Edge Function: **Artwork-Ranking fürs Produktdesign** 
 - **Airtable-Attachment-URLs laufen ab** (~2 h). Die App lädt die Queue live, daher unkritisch — aber Bild-URLs nie irgendwo statisch ablegen.
 - **Sync-Limit:** Edge Functions haben 150 s Idle-Timeout. `?limit=100` pro Lauf ist sicher; einfach wiederholen.
 - **Board-Layout:** Die Bereichs-Erkennung erwartet große Überschriften. Neue Karteien/Spalten neben oder unter einem Review-Bereich brauchen ebenfalls eine große Überschrift, sonst werden ihre Bilder dem Bereich zugerechnet.
-- **Video-Storage:** Bucket `video-uploads` (Supabase Storage, public, nur `video/mp4|quicktime|webm|x-m4v|x-matroska`) ist getrennt vom älteren, ungenutzten Bucket `app` — nicht verwechseln. Kein RLS-Policy nötig: Signed-Upload-URLs (`POST /uploadurl`) sind laut Supabase-Doku „ohne weitere Authentifizierung" nutzbar, der Token selbst ist die Autorisierung.
+- **Video-Storage:** Bucket `video-uploads` (Supabase Storage, public, nur `video/mp4|quicktime|webm|x-m4v|x-matroska`) ist getrennt vom älteren, ungenutzten Bucket `app` — nicht verwechseln. Kein RLS-Policy nötig: Signed-Upload-URLs (`POST /uploadurl`) sind laut Supabase-Doku „ohne weitere Authentifizierung" nutzbar, der Token selbst ist die Autorisierung. Wird ein Asset in Airtable gelöscht, bleibt die Datei im Bucket liegen — `POST /storagegc?format=video` räumt solche Waisen auf (Abgleich über den Attachment-Dateinamen, `?dry=1` zeigt nur an).
 - **Video-Storage, Größenlimit — genau EINE Stelle:** Die maximale Dateigröße bestimmt ausschließlich das projektweite *Global file size limit* (Supabase Dashboard → Storage → Settings; Platform-Config, nicht per SQL änderbar). Der Bucket hat bewusst **kein eigenes Limit** mehr (`file_size_limit = NULL`, seit 10.09.) — vorher gab es zwei Limits, und das globale (50 MB Default) deckelte still das Bucket-Limit (500 MB): Uploads >50 MB scheiterten mit `413 EntityTooLarge`, obwohl Bucket und Seite 500 MB versprachen. Außerdem verweigert das Dashboard ein globales Limit, das kleiner als ein Bucket-Limit ist. Pro-Plan: bis 500 GB einstellbar, Free-Plan: hart 50 MB. Wer das globale Limit ändert, zieht `MAX_MB` in `video/index.html` nach — das steuert Client-Vorprüfung und Hinweistext.
 
 ## Airtable-Referenz
