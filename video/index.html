@@ -75,7 +75,7 @@ var SB_ROOT="https://ekiwwjzmiywaxvxdhzat.supabase.co";
 // ?key=-Links, die im Team ohnehin schon offen herumgereicht werden.
 var KEY="547895645621236548899654123654563214779896";
 // Muss zum Supabase "Global file size limit" passen (Dashboard > Storage >
-// Settings) — das deckelt das Bucket-Limit, siehe README "Video-Storage".
+// Settings) — der Bucket selbst hat kein eigenes Limit, siehe README "Video-Storage".
 var MAX_MB=500,MAX_BYTES=MAX_MB*1024*1024;
 var ALLOWED_TYPES=['video/mp4','video/quicktime','video/webm','video/x-m4v','video/x-matroska'];
 var DROP_HINT='MP4, MOV, WebM — bis '+MAX_MB+' MB pro Datei, mehrere auf einmal möglich';
