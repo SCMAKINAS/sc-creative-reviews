@@ -33,6 +33,13 @@ select{appearance:none;-webkit-appearance:none;background-image:url("data:image/
 .drop b{display:block;font-family:'Oswald','Arial Narrow',sans-serif;font-size:12px;letter-spacing:.08em;margin-bottom:4px}
 .drop span{font-size:9.5px;color:var(--bone2)}
 .drop input{display:none}
+.files{list-style:none;margin:8px 0 0;padding:0;display:none}
+.files li{display:flex;align-items:center;gap:8px;font-size:10px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:4px;background:#111}
+.files li b{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.files li span{color:var(--bone2);white-space:nowrap}
+.files li.ok{border-color:#2F5F44}.files li.ok span{color:#9BE0B4}
+.files li.err{border-color:var(--blood)}.files li.err span{color:#f0b8b8;white-space:normal;text-align:right}
+.files li button{background:none;border:0;color:var(--bone2);cursor:pointer;font-size:13px;line-height:1;padding:0 2px}
 .newin{display:flex;gap:5px;margin-top:6px}
 .newin input{flex:1;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:8px 9px;font-size:11px}
 .newin button{background:var(--blood);border:1px solid var(--blood);color:#fff;border-radius:7px;padding:0 13px;font-size:10px;font-weight:700;cursor:pointer}
@@ -67,11 +74,17 @@ var SB_ROOT="https://ekiwwjzmiywaxvxdhzat.supabase.co";
 // keine Reviewer), die sollen keinen Key-Screen sehen. Selber Key wie die
 // ?key=-Links, die im Team ohnehin schon offen herumgereicht werden.
 var KEY="547895645621236548899654123654563214779896";
-var CATS=null,file=null,busy=false;
+// Muss zum Supabase "Global file size limit" passen (Dashboard > Storage >
+// Settings) — das deckelt das Bucket-Limit, siehe README "Video-Storage".
+var MAX_MB=500,MAX_BYTES=MAX_MB*1024*1024;
+var ALLOWED_TYPES=['video/mp4','video/quicktime','video/webm','video/x-m4v','video/x-matroska'];
+var DROP_HINT='MP4, MOV, WebM — bis '+MAX_MB+' MB pro Datei, mehrere auf einmal möglich';
+var CATS=null,files=[],busy=false;
 
 var V=document.getElementById('view');
 function $(id){return document.getElementById(id)}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
+function mb(bytes){return Math.round(bytes/1024/1024*10)/10}
 function api(path,opts){opts=opts||{};
  opts.headers=Object.assign({'x-review-key':KEY,'content-type':'application/json'},opts.headers||{});
  return fetch(API+path,opts).then(function(r){
@@ -88,19 +101,30 @@ function opts(list,ph,allowNew){
   list.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'}).join('')+
   (allowNew===false?'':'<option value="'+NEWOPT+'">+ Neu anlegen ...</option>')}
 
+function toast(msg,ok){var t=$('toast');t.className='toast '+(ok?'ok':'err');t.textContent=msg}
+function clearToast(){var t=$('toast');t.className='toast';t.textContent=''}
+
+function storageError(xhr){
+ var b=null;try{b=JSON.parse(xhr.responseText)}catch(ignore){}
+ var code=String((b&&(b.code||b.error))||'')+' '+String((b&&b.message)||'');
+ if(/EntityTooLarge|too large/i.test(code))return 'zu gross fuer den Server-Upload';
+ if(/InvalidMimeType|invalid_mime_type/i.test(code))return 'Dateityp wird vom Server nicht akzeptiert';
+ return (b&&b.message)||('Storage-Upload '+xhr.status)}
+
 function form(){
- file=null;busy=false;
+ files=[];busy=false;
  V.innerHTML='<div class="body">'+
   '<h4>NEUES VIDEO</h4>'+
-  '<div class="hint">Kategorie wählen, Datei auswählen oder reinziehen, hochladen. Erscheint danach im VIDEO-Tab der Review-App.</div>'+
+  '<div class="hint">Kategorie wählen, ein oder mehrere Videos auswählen oder reinziehen, hochladen. Erscheinen danach im VIDEO-Tab der Review-App.</div>'+
   '<label>DIRECTORY</label><select id="dir">'+opts(CATS.directories,'Wählen …',false)+'</select>'+
   '<label>CONTENT-ART</label><select id="ca" disabled>'+opts([],'— erst Directory wählen —')+'</select>'+
   '<div class="newin" id="canew" style="display:none"><input id="cani" placeholder="Neue Content-Art"><button id="cana">Anlegen</button></div>'+
   '<label>FORMAT</label><select id="fmt" disabled>'+opts([],'— erst Content-Art wählen —')+'</select>'+
   '<div class="newin" id="fmtnew" style="display:none"><input id="fmtni" placeholder="Neues Format"><button id="fmtna">Anlegen</button></div>'+
-  '<label>DATEI</label>'+
-  '<div class="drop" id="drop"><b>DATEI WÄHLEN ODER REINZIEHEN</b><span>MP4, MOV, WebM — bis 500 MB</span>'+
-   '<input type="file" id="file" accept="video/*"></div>'+
+  '<label>DATEIEN</label>'+
+  '<div class="drop" id="drop"><b>DATEIEN WÄHLEN ODER REINZIEHEN</b><span>'+esc(DROP_HINT)+'</span>'+
+   '<input type="file" id="file" accept="video/*" multiple></div>'+
+  '<ul class="files" id="files"></ul>'+
   '<video class="preview" id="prev" controls muted></video>'+
   '<div class="bar" id="bar"><i id="bari"></i></div>'+
   '<button class="wide" id="go" disabled>HOCHLADEN</button>'+
@@ -153,71 +177,109 @@ function form(){
   function(newId){fmtSel.innerHTML=opts(CATS.formats.filter(function(f){return f.contentArtId===caSel.value}),'Wählen …');
    fmtSel.value=newId;checkReady()});
 
- var drop=$('drop'),fileInput=$('file'),prev=$('prev');
+ var drop=$('drop'),fileInput=$('file'),prev=$('prev'),list=$('files'),prevUrl=null;
  drop.onclick=function(){if(busy)return;fileInput.click()};
- fileInput.onchange=function(){if(busy)return;if(fileInput.files[0])setFile(fileInput.files[0])};
+ fileInput.onchange=function(){
+  if(busy)return;
+  if(fileInput.files.length)addFiles(fileInput.files);
+  fileInput.value=''};
  ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over')})});
  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over')})});
- drop.addEventListener('drop',function(e){if(busy)return;var f=e.dataTransfer.files[0];if(f)setFile(f)});
+ drop.addEventListener('drop',function(e){if(busy)return;if(e.dataTransfer.files.length)addFiles(e.dataTransfer.files)});
+ list.onclick=function(e){
+  var b=e.target.closest('button');if(!b||busy)return;
+  files.splice(Number(b.getAttribute('data-i')),1);
+  renderFiles();checkReady()};
 
- var ALLOWED_TYPES=['video/mp4','video/quicktime','video/webm','video/x-m4v','video/x-matroska'];
- function setFile(f){
-  if(f.type&&ALLOWED_TYPES.indexOf(f.type)===-1){
-   toast('Dateityp "'+f.type+'" wird nicht unterstuetzt. Bitte als MP4, MOV, WebM, M4V oder MKV exportieren.',false);
-   return}
-  file=f;drop.classList.add('has');
-  drop.querySelector('b').textContent=f.name;
-  drop.querySelector('span').textContent=Math.round(f.size/1024/1024*10)/10+' MB';
-  prev.src=URL.createObjectURL(f);prev.style.display='block';
-  toast('',false);$('toast').className='toast';
-  checkReady()}
+ function addFiles(fl){
+  var rejected=[];
+  Array.prototype.forEach.call(fl,function(f){
+   if(f.type&&ALLOWED_TYPES.indexOf(f.type)===-1){
+    rejected.push(f.name+': Dateityp "'+f.type+'" wird nicht unterstuetzt (MP4, MOV, WebM, M4V oder MKV).');return}
+   if(f.size>MAX_BYTES){
+    rejected.push(f.name+': '+mb(f.size)+' MB ist zu gross, erlaubt sind max. '+MAX_MB+' MB pro Datei.');return}
+   var dup=files.some(function(x){return x.file.name===f.name&&x.file.size===f.size});
+   if(!dup)files.push({file:f,status:'',msg:''})});
+  if(rejected.length)toast(rejected.join(' '),false);else clearToast();
+  renderFiles();checkReady()}
+
+ function renderFiles(){
+  if(prevUrl){URL.revokeObjectURL(prevUrl);prevUrl=null}
+  if(!files.length){
+   list.style.display='none';list.innerHTML='';
+   drop.classList.remove('has');
+   drop.querySelector('b').textContent='DATEIEN WÄHLEN ODER REINZIEHEN';
+   drop.querySelector('span').textContent=DROP_HINT;
+   prev.style.display='none';return}
+  list.style.display='block';
+  list.innerHTML=files.map(function(x,i){
+   var st=x.status==='ok'?'✓':x.status==='err'?'✗ '+esc(x.msg):x.status==='up'?'lädt …':mb(x.file.size)+' MB';
+   var rm=(busy||x.status==='ok')?'':'<button type="button" data-i="'+i+'" title="Entfernen">×</button>';
+   return '<li class="'+esc(x.status)+'"><b>'+esc(x.file.name)+'</b><span>'+st+'</span>'+rm+'</li>'}).join('');
+  drop.classList.add('has');
+  var total=files.reduce(function(s,x){return s+x.file.size},0);
+  drop.querySelector('b').textContent=files.length===1?files[0].file.name:files.length+' DATEIEN';
+  drop.querySelector('span').textContent=mb(total)+' MB gesamt';
+  if(files.length===1){prevUrl=URL.createObjectURL(files[0].file);prev.src=prevUrl;prev.style.display='block'}
+  else prev.style.display='none'}
 
  function valid(v){return v&&v!==NEWOPT}
  function checkReady(){
   if(busy){$('go').disabled=true;return}
-  $('go').disabled=!(file&&valid(dirSel.value)&&valid(caSel.value)&&valid(fmtSel.value))}
+  var pending=files.some(function(x){return x.status!=='ok'});
+  $('go').disabled=!(pending&&valid(dirSel.value)&&valid(caSel.value)&&valid(fmtSel.value))}
+
+ function put(d,file,onProgress){
+  return new Promise(function(resolve,reject){
+   var xhr=new XMLHttpRequest();
+   xhr.open('PUT',d.signedUrl);
+   xhr.setRequestHeader('content-type',file.type||'video/mp4');
+   xhr.upload.onprogress=function(e){if(e.lengthComputable)onProgress(e.loaded)};
+   xhr.onload=function(){
+    if(xhr.status>=200&&xhr.status<300){resolve(d.path);return}
+    reject(new Error(storageError(xhr)))};
+   xhr.onerror=function(){reject(new Error('Netzwerkfehler beim Upload'))};
+   xhr.send(file)})}
+
+ function upload(directoryId,contentArtId,formatId){
+  if(busy)return;
+  busy=true;
+  var go=$('go'),bar=$('bar'),bari=$('bari');
+  var lockEls=[dirSel,caSel,fmtSel];
+  go.disabled=true;bar.style.display='block';bari.style.width='0';clearToast();
+  lockEls.forEach(function(el){el.disabled=true});
+  drop.style.pointerEvents='none';drop.style.opacity='.5';
+
+  var todo=files.filter(function(x){return x.status!=='ok'});
+  var total=todo.reduce(function(s,x){return s+x.file.size},0)||1,done=0,failed=0,n=0;
+
+  function one(x){
+   n++;x.status='up';x.msg='';renderFiles();
+   go.textContent='LAEDT HOCH '+n+'/'+todo.length+' …';
+   return api('/uploadurl?format=video',{method:'POST',body:JSON.stringify({filename:x.file.name})})
+    .then(function(d){return put(d,x.file,function(loaded){bari.style.width=Math.round((done+loaded)/total*100)+'%'})})
+    .then(function(path){
+     return api('/ingest?format=video',{method:'POST',body:JSON.stringify({items:[{
+      url:SB_ROOT+'/storage/v1/object/public/video-uploads/'+path,
+      directoryId:directoryId,contentArtId:contentArtId,formatId:formatId}]})})})
+    .then(function(){x.status='ok'},function(e){x.status='err';x.msg=String(e.message);failed++})
+    .then(function(){done+=x.file.size;bari.style.width=Math.round(done/total*100)+'%';renderFiles()})}
+
+  todo.reduce(function(p,x){return p.then(function(){return one(x)})},Promise.resolve())
+   .then(function(){
+    if(!failed){
+     go.textContent=todo.length>1?todo.length+' VIDEOS HOCHGELADEN ✓':'HOCHGELADEN ✓';go.className='wide ok';
+     toast(todo.length>1?'Alle Videos liegen im VIDEO-Tab der Review-App bereit.':'Video liegt im VIDEO-Tab der Review-App bereit.',true);
+     setTimeout(form,1600);return}
+    busy=false;
+    lockEls.forEach(function(el){el.disabled=false});
+    drop.style.pointerEvents='';drop.style.opacity='';
+    bar.style.display='none';bari.style.width='0';
+    go.textContent=todo.length>1?'FEHLGESCHLAGENE ERNEUT HOCHLADEN':'ERNEUT HOCHLADEN';go.className='wide';
+    toast(failed+' von '+todo.length+' fehlgeschlagen — Grund steht in der Liste. Erfolgreiche liegen schon in der Review-App.',false);
+    renderFiles();checkReady()})}
 
  $('go').onclick=function(){upload(dirSel.value,caSel.value,fmtSel.value)}}
-
-function toast(msg,ok){var t=$('toast');t.className='toast '+(ok?'ok':'err');t.textContent=msg}
-
-function upload(directoryId,contentArtId,formatId){
- if(busy)return;
- busy=true;
- var go=$('go'),bar=$('bar'),bari=$('bari');
- var lockEls=[$('dir'),$('ca'),$('fmt')],dropEl=$('drop');
- go.disabled=true;go.textContent='LAEDT HOCH …';bar.style.display='block';toast('',false);$('toast').className='toast';
- lockEls.forEach(function(el){el.disabled=true});
- dropEl.style.pointerEvents='none';dropEl.style.opacity='.5';
-
- api('/uploadurl?format=video',{method:'POST',body:JSON.stringify({filename:file.name})})
-  .then(function(d){
-   return new Promise(function(resolve,reject){
-    var xhr=new XMLHttpRequest();
-    xhr.open('PUT',d.signedUrl);
-    xhr.setRequestHeader('content-type',file.type||'video/mp4');
-    xhr.upload.onprogress=function(e){if(e.lengthComputable)bari.style.width=Math.round(e.loaded/e.total*100)+'%'};
-    xhr.onload=function(){
-     if(xhr.status>=200&&xhr.status<300){resolve(d.path);return}
-     var msg='Storage-Upload '+xhr.status;
-     try{var b=JSON.parse(xhr.responseText);if(b&&b.message)msg=b.message}catch(ignore){}
-     reject(new Error(msg))};
-    xhr.onerror=function(){reject(new Error('Storage-Upload fehlgeschlagen (Netzwerk)'))};
-    xhr.send(file)})})
-  .then(function(path){
-   var url=SB_ROOT+'/storage/v1/object/public/video-uploads/'+path;
-   return api('/ingest?format=video',{method:'POST',body:JSON.stringify({
-    items:[{url:url,directoryId:directoryId,contentArtId:contentArtId,formatId:formatId}]})})})
-  .then(function(){
-   go.textContent='HOCHGELADEN ✓';go.className='wide ok';
-   toast('Video liegt im VIDEO-Tab der Review-App bereit.',true);
-   setTimeout(form,1600)})
-  .catch(function(e){
-   busy=false;
-   go.disabled=false;go.textContent='HOCHLADEN';bar.style.display='none';bari.style.width='0';
-   lockEls.forEach(function(el){el.disabled=false});
-   dropEl.style.pointerEvents='';dropEl.style.opacity='';
-   toast('Fehlgeschlagen: '+String(e.message),false)})}
 
 load();
 })();
