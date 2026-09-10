@@ -260,7 +260,7 @@ function form(){
     .then(function(d){return put(d,x.file,function(loaded){bari.style.width=Math.round((done+loaded)/total*100)+'%'})})
     .then(function(path){
      return api('/ingest?format=video',{method:'POST',body:JSON.stringify({items:[{
-      url:SB_ROOT+'/storage/v1/object/public/video-uploads/'+path,
+      url:SB_ROOT+'/storage/v1/object/public/video-uploads/'+path,storagePath:path,
       directoryId:directoryId,contentArtId:contentArtId,formatId:formatId}]})})})
     .then(function(){x.status='ok'},function(e){x.status='err';x.msg=String(e.message);failed++})
     .then(function(){done+=x.file.size;bari.style.width=Math.round(done/total*100)+'%';renderFiles()})}

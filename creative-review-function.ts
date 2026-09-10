@@ -723,6 +723,10 @@ async function ingest(req: Request) {
       ...(it?.directoryId ? { Directory: [String(it.directoryId)] } : {}),
       ...(it?.contentArtId ? { "Content-Art": [String(it.contentArtId)] } : {}),
       ...(it?.formatId ? { Format: [String(it.formatId)] } : {}),
+      // Kanonischer Verweis auf das Storage-Objekt (Bucket-Pfad). Airtable holt
+      // das Preview asynchron und laesst es bei Fetch-Fehlern stumm weg -- ueber
+      // diesen Pfad bleibt das Video trotzdem auffindbar (queue-Fallback, /storagegc).
+      ...(it?.storagePath ? { "Storage-Pfad": String(it.storagePath) } : {}),
     } });
   }
   if (!rows.length) return json({ created: 0, skipped: items.length, note: "Alles bereits vorhanden." });
@@ -975,14 +979,27 @@ async function uploadUrl(req: Request) {
 // Absichtlich NUR Orphans loeschbar — die Route haengt am geteilten Key aus
 // video/index.html, referenzierte Videos kann sie nicht anfassen. ?dry=1 zeigt nur.
 const VIDEO_BUCKET = "video-uploads";
+function storageUrl(r: any): string | null {
+  const p = String(r?.fields?.["Storage-Pfad"] ?? "").trim();
+  return p ? `${SB_URL}/storage/v1/object/public/${VIDEO_BUCKET}/${p}` : null;
+}
 async function storageGc(req: Request) {
   const f = fmtOf(req);
   if (!f || f.key !== "video") return json({ error: "nur format=video unterstuetzt" }, 400);
   const dry = new URL(req.url).searchParams.get("dry") === "1";
-  const assets = await atAll(f.base, f.assets, "fields[]=Preview");
+  const assets = await atAll(f.base, f.assets, "fields[]=Preview&fields[]=Storage-Pfad");
+  // Drei Verweise zaehlen: Attachment-Dateiname (fertig verarbeitet), rohe
+  // Attachment-URL (Airtable laedt noch) und Storage-Pfad -- der ist der EINZIGE
+  // Verweis, wenn Airtable den Fetch stumm verworfen hat (passiert, s. VID-0012).
   const referenced = new Set<string>();
   for (const r of assets) {
-    for (const a of r.fields["Preview"] ?? []) if (a?.filename) referenced.add(String(a.filename));
+    const sp = String(r.fields["Storage-Pfad"] ?? "").trim();
+    if (sp) referenced.add(sp.split("/").pop() ?? sp);
+    for (const a of r.fields["Preview"] ?? []) {
+      if (a?.filename) referenced.add(String(a.filename));
+      const m = String(a?.url ?? "").match(/\/video-uploads\/(?:[^/]+\/)*([^/?#]+)/);
+      if (m) referenced.add(m[1]);
+    }
   }
   const bucket = createClient(SB_URL, SB_KEY).storage.from(VIDEO_BUCKET);
   const listAll = async (prefix: string) => {
@@ -1015,7 +1032,21 @@ async function storageGc(req: Request) {
     else if (x.created && Date.parse(x.created) > cutoff) recent.push(x.path);
     else orphans.push(x);
   }
+  // Selbstheilung: Assets ohne Storage-Pfad (Altbestand, oder /ingest ohne
+  // storagePath) bekommen ihn nachgetragen, sobald ihr Attachment-Dateiname
+  // bzw. die rohe Attachment-URL zu einem Bucket-Objekt passt.
+  const byBase = new Map(files.map((x) => [x.path.split("/").pop() ?? x.path, x.path]));
+  const backfill: any[] = [];
+  for (const r of assets) {
+    if (String(r.fields["Storage-Pfad"] ?? "").trim()) continue;
+    for (const a of r.fields["Preview"] ?? []) {
+      const base = a?.filename || String(a?.url ?? "").match(/\/video-uploads\/(?:[^/]+\/)*([^/?#]+)/)?.[1];
+      const p = base ? byBase.get(String(base)) : undefined;
+      if (p) { backfill.push({ id: r.id, fields: { "Storage-Pfad": p } }); break; }
+    }
+  }
   if (!dry) {
+    if (backfill.length) await atPatch(f.base, f.assets, backfill);
     for (let i = 0; i < orphans.length; i += 100) {
       const { error } = await bucket.remove(orphans.slice(i, i + 100).map((x) => x.path));
       if (error) throw new Error(`Storage remove: ${error.message}`);
@@ -1024,6 +1055,7 @@ async function storageGc(req: Request) {
   const mb = (n: number) => Math.round(n / 1048576 * 10) / 10;
   return json({
     dry, scanned: files.length, referenced: kept, recentSkipped: recent,
+    [dry ? "wouldBackfill" : "backfilled"]: backfill.length,
     [dry ? "wouldDelete" : "deleted"]: orphans.map((x) => ({ path: x.path, mb: mb(x.size) })),
     freedMb: dry ? 0 : mb(orphans.reduce((s, x) => s + x.size, 0)),
   });
@@ -1123,11 +1155,13 @@ async function queue(req: Request) {
       colorway: r.fields["Colorway"] ?? "",
       batch: r.fields["Batch"] ?? "",
       // Thumbnail zuerst (schnell), volle Aufloesung fuer Zoom/Nachladen.
-      image: r.fields["Preview"]?.[0]?.thumbnails?.large?.url ?? r.fields["Preview"]?.[0]?.url ?? null,
-      imageFull: r.fields["Preview"]?.[0]?.url ?? null,
-      // Von Airtables eigenem MIME-Type abgeleitet (nicht vom Format-Key) --
-      // so weiss die App zuverlaessig, ob <video> statt <img> gerendert werden muss.
-      kind: String(r.fields["Preview"]?.[0]?.type ?? "").startsWith("video/") ? "video" : "image",
+      // Video-Fallback: fehlt das Airtable-Attachment (Fetch stumm fehlgeschlagen),
+      // spielt die App direkt vom public Bucket ueber "Storage-Pfad".
+      image: r.fields["Preview"]?.[0]?.thumbnails?.large?.url ?? r.fields["Preview"]?.[0]?.url ?? storageUrl(r),
+      imageFull: r.fields["Preview"]?.[0]?.url ?? storageUrl(r),
+      // MIME-Type von Airtable zuerst; format=video ist immer Video -- auch wenn das
+      // Attachment noch in Verarbeitung ist (kein type) oder ganz fehlt.
+      kind: String(r.fields["Preview"]?.[0]?.type ?? "").startsWith("video/") || f.key === "video" ? "video" : "image",
       figma: r.fields["Figma Link"] ?? null,
       // Postcards: Rueckseiten der Gruppe (naechste zuerst); leer bei anderen Formaten.
       backImages: (r.fields["Back Preview"] ?? []).map((a: any) => a?.thumbnails?.large?.url ?? a?.url).filter(Boolean),
