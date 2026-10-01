@@ -31,6 +31,8 @@
 //   GET  /failtags alle bekannten Fail-Tag-Optionen pro Achse
 //   POST /baseline aktuellen Board-Stand einfrieren (wird vom Sync uebersprungen)
 //   GET  /rollup   Trefferquoten pro Entitaet + bestaetigte Kritik-Flags
+//   POST /notify   ntfy-Push "X <Format> offen zur Review" fuer JEDES Format {message?}
+//                  (Topic app_config.ntfy_topic_<format>, Fallback ntfy_topic; leere Queue = kein Push)
 //   GET  /videocats        3-stufige Video-Kategorien (Directory->Content-Art->Format)
 //                          mit Parent-IDs inline, fuer die Upload-Seite
 //   POST /videocats        neue Content-Art oder neues Format anlegen (Selbstbedienung,
@@ -1759,6 +1761,29 @@ async function skAddRuleRoute(req: Request) {
   return json({ ok: true, ruleId: id });
 }
 
+// Generischer ntfy-Push fuer alle Board-/Upload-Formate (artworks hat skNotifyQueue):
+// zaehlt die offenen (Status=Queued) Assets des Formats und pusht sie aufs Topic
+// app_config.ntfy_topic_<format> (Fallback ntfy_topic). Leere Queue = kein Push.
+// Optionaler Body {message} ueberschreibt den Text.
+async function notifyQueue(req: Request) {
+  const f = fmtOf(req);
+  if (!f) return json({ error: "unbekanntes format" }, 400);
+  const b = await req.json().catch(() => ({}));
+  const open = await atAll(
+    f.base, f.assets,
+    "filterByFormula=" + encodeURIComponent(`{Status}="Queued"`) + "&fields[]=Asset%20ID",
+  );
+  if (!open.length) return json({ notified: false, queue: 0, note: "Queue leer — kein Push." });
+  const msg = String(b?.message ?? "").trim() || `${open.length} ${f.label} offen zur Review`;
+  await notify(msg, {
+    title: `Creative Review · ${f.label}`,
+    click: "https://scmakinas.github.io/sc-creative-reviews/",
+    tags: ["framed_picture"],
+    topicKey: `ntfy_topic_${f.key}`,
+  });
+  return json({ notified: true, queue: open.length, format: f.key });
+}
+
 // Diagnose: prueft den Airtable-Zugriff (PAT!) und liefert Queue-Staende.
 async function skProbe() {
   const t0 = Date.now();
@@ -1834,6 +1859,7 @@ Deno.serve(async (req) => {
     if (route === "failtags") return await failtags(req);
     if (route === "baseline" && req.method === "POST") return await baseline(req);
     if (route === "rollup") return await rollup();
+    if (route === "notify" && req.method === "POST") return await notifyQueue(req);
     return json({ error: "unknown route", route }, 404);
   } catch (e) {
     console.log(`[error] ${String(e)}`);
