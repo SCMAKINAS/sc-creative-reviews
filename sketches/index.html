@@ -7,7 +7,7 @@
 <!-- Die Design-Team-App bewertet Artworks und lebt jetzt unter /artworks/.
      Dieser Pfad ist reserviert fuer die kuenftige echte Sketch-Review-App.
      JS-Redirect nimmt den ?key= aus der URL mit; meta-refresh ist der Fallback. -->
-<script>location.replace('../artworks/'+location.search)</script>
+<script>location.replace('../artworks/'+location.search+location.hash)</script>
 <meta http-equiv="refresh" content="0;url=../artworks/">
 </head>
 <body style="margin:0;background:#050505;color:#B8B2A7;font-family:system-ui,sans-serif;display:flex;justify-content:center;padding-top:80px">

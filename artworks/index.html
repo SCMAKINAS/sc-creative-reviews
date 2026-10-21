@@ -81,6 +81,7 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .vote .vc{font-weight:700}
 .vote .vc.ok{color:#7FCE9C}
 .vote .vc.no{color:#E08585}
+.vote .alt{color:#E5C56B;font-weight:700;letter-spacing:.06em}
 .conf .cin{width:100%;background:#161616;border:1px solid var(--line);color:var(--bone);border-radius:7px;padding:7px 9px;font-size:11px;margin-top:8px}
 .conf .crow{display:flex;gap:6px;margin-top:7px}
 .conf .crow button{flex:1;border-radius:7px;padding:8px 4px;font-size:9.5px;font-weight:700;letter-spacing:.05em;cursor:pointer;border:1px solid var(--line);background:#161616;color:var(--bone)}
@@ -178,8 +179,22 @@ function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
  V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
  '<div class="hint">Einmal eingeben — wird auf diesem Gerät gespeichert.</div>'+
  '<input id="ki" type="password" placeholder="Key"><button class="wide" id="kg">LOS</button></div>';
- $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);load()};
+ $('kg').onclick=function(){var v=cleanKey($('ki').value);if(!v)return;KEY=v;localStorage.setItem('scr-key',v);enter()};
  $('ki').onkeydown=function(e){if(e.key==='Enter')$('kg').click()}}
+
+// Deeplink auf den KONFLIKTE-Tab: #konflikte, #conflicts oder ?view=konflikte|conflicts.
+// Der ntfy-Tap der Konflikt-Erinnerung oeffnet #konflikte (ohne Key im Link).
+function wantsConflicts(){
+ var h=(location.hash||'').replace(/^#/,'').toLowerCase();
+ if(h==='conflicts'||h==='konflikte')return true;
+ var v=(new URLSearchParams(location.search).get('view')||'').toLowerCase();
+ return v==='conflicts'||v==='konflikte'}
+function rememberView(view){
+ var u=new URL(location.href);
+ u.searchParams.delete('view');
+ u.hash=view==='conflicts'?'konflikte':'';
+ history.replaceState(null,'',u.pathname+u.search+u.hash)}
+function enter(){if(st.view==='conflicts')conflictsView();else load()}
 
 // ---- Ansichts-Schalter (Queue / Konflikte) ----
 function viewsw(){
@@ -187,8 +202,8 @@ function viewsw(){
  btns.forEach(function(b){
   b.classList.toggle('on',b.dataset.v===st.view);
   b.onclick=function(){if(st.view===b.dataset.v)return;
-   st.view=b.dataset.v;viewsw();
-   if(st.view==='conflicts')conflictsView();else load()}})}
+   st.view=b.dataset.v;rememberView(st.view);viewsw();
+   enter()}})}
 function setBadge(n){var b=$('cbadge');b.textContent=n;b.style.display=n>0?'inline-block':'none'}
 
 // ---- Reviewer-Pill ----
@@ -391,18 +406,27 @@ function conflictsView(){
  bar(0,'KONFLIKTE','');KEYS.textContent='';
  V.innerHTML='<div class="loadbox">LADE KONFLIKTE …</div>';
  api('/conflicts').then(function(d){
-  st.conflicts=d.conflicts||[];setBadge(st.conflicts.length);
+  st.conflicts=d.conflicts||[];setBadge(typeof d.open==='number'?d.open:st.conflicts.length);
   if(!st.conflicts.length){
    V.innerHTML='<div class="body"><h4>KEINE KONFLIKTE</h4><div class="hint">Ihr seid euch bei allen beidseitig bewerteten Artworks einig. Stark.</div></div>';
    return}
-  var h='<div class="body"><h4>KONFLIKTE ('+st.conflicts.length+')</h4>'+
-   '<div class="hint">Vuven und Max sind uneins. Kurz besprechen, dann hier die gemeinsame Entscheidung setzen — die Klärungs-Notiz landet in den Feedback-Notes und als Regel-Vorschlag.</div>';
+  var bits=[];
+  if(d.stale)bits.push(d.stale+' älter als 30 Tage');
+  if(d.legacy)bits.push(d.legacy+' Alt-Vote'+(d.legacy===1?'':'s')+' ohne Ergebnis');
+  var h='<div class="body"><h4>KONFLIKTE ('+st.conflicts.length+(bits.length?' — '+bits.join(', '):'')+')</h4>'+
+   '<div class="hint">Vuven und Max sind uneins — auch ältere Split-Votes, bei denen beide Ranks gesetzt sind und das Ergebnis leer blieb. Anzeigen schreibt nichts nach Airtable. Kurz besprechen, dann hier die gemeinsame Entscheidung setzen; die Klärungs-Notiz landet in den Feedback-Notes und als Regel-Vorschlag.</div>';
   st.conflicts.forEach(function(c,i){
-   var votes=(c.reviews||[]).map(function(r){
+   var votes=(c.reviews&&c.reviews.length)?c.reviews.map(function(r){
     return '<div class="vote"><b>'+esc(r.reviewer.toUpperCase())+'</b> '+
      '<span class="vc '+(r.verdict==='Confirm'?'ok':'no')+'">'+(r.verdict==='Confirm'?'✓ CONFIRM':'✕ REJECT')+'</span>'+
      ((r.tags&&r.tags.length)?' — '+esc(r.tags.join(', ')):'')+
-     (r.comment?'<br>„'+esc(r.comment)+'“':'')+'</div>'}).join('');
+     (r.comment?'<br>„'+esc(r.comment)+'“':'')+'</div>'}).join('')
+    :['Vuven','Max'].map(function(name){
+     var v=c.votes&&c.votes[name];if(!v)return '';
+     return '<div class="vote"><b>'+esc(name.toUpperCase())+'</b> '+
+      '<span class="vc '+(v==='Confirm'?'ok':'no')+'">'+(v==='Confirm'?'✓ CONFIRM':'✕ REJECT')+'</span></div>'}).join('');
+   if(c.legacy)votes+='<div class="vote"><span class="alt">ALT-VOTE</span> beide Ranks gesetzt, Ergebnis leer</div>';
+   else if(c.stale)votes+='<div class="vote"><span class="alt">ÄLTER ALS 30 TAGE</span>'+(c.resultAt?' seit '+esc(String(c.resultAt).slice(0,10)):'')+'</div>';
    h+='<div class="conf" data-i="'+i+'"><div class="ctop">'+
     '<img src="'+esc(c.image||'')+'" data-full="'+esc(c.imageFull||c.image||'')+'" alt="">'+
     '<div style="flex:1;min-width:0"><div class="ct">'+esc(titleOf(c))+'</div>'+
@@ -490,9 +514,10 @@ $('viewerclose').onclick=closeViewer;
 })();
 
 // ---- Start ----
+if(wantsConflicts())st.view='conflicts';
 viewsw();
 pill();
-if(initKey())load();
+if(initKey())enter();
 })();
 </script>
 </body>

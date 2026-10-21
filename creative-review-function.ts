@@ -52,14 +52,20 @@
 //   GET  /queue?format=artworks&reviewer=Vuven|Max   offene Artworks
 //   POST /review?format=artworks    {recordId,reviewer,verdict,tags?,comment?}
 //   POST /unreview?format=artworks  {reviewId}
-//   GET  /conflicts?format=artworks Konflikte (Vuven vs. Max) mit beiden Votes
+//   GET  /conflicts?format=artworks Konflikte (Vuven vs. Max) mit beiden Votes,
+//                                   inkl. Alt-Splits (beide Ranks gesetzt,
+//                                   verschieden, Ergebnis leer) — nur lesen
 //   POST /resolve?format=artworks   {recordId,verdict,comment?} Konflikt klaeren
 //   GET  /rules?format=artworks     Artwork-Regelkatalog (SKR-xx)
 //   GET  /failtags?format=artworks  bekannte Feedback-Tags
-//   GET  /probe?format=artworks     Airtable-Zugriff + Queue-Staende pruefen
+//   GET  /probe?format=artworks     Airtable-Zugriff + Queue- und Konflikt-Staende
 //   POST /notify?format=artworks    ntfy-Push "X Artworks offen" {message?}
 //                                   (ruft der Import-Prozess nach dem Einspielen;
 //                                   Topic: app_config.ntfy_topic_artworks)
+//   POST /remind?format=artworks    ntfy-Push offene Konflikte, nur wenn > 0
+//                                   (?dry=1 zaehlt und formuliert, sendet nicht;
+//                                   taeglich via pg_cron, siehe
+//                                   supabase/artwork-conflict-reminder.sql)
 //   POST /addrule?format=artworks   Regel-Vorschlag programmatisch anlegen
 //                                   {regel, quelle?, bereich?, notizen?}
 
@@ -1456,6 +1462,9 @@ async function rollup() {
 //   beide No  -> Rejected (aussortiert)
 //   uneins    -> Konflikt; /conflicts zeigt beide Votes, /resolve schreibt
 //                die Einigung und vereinheitlicht beide Ranks.
+//   Alt-Splits (beide Ranks gesetzt und verschieden, Ergebnis leer — aus der
+//   Zeit vor der App) zaehlen mit und erscheinen in /conflicts, ohne dass
+//   die Queue-Views angefasst oder Felder nachgeschrieben werden.
 // Kommentare > 3 Zeichen werden automatisch als Regel-Vorschlag (SKR-xx)
 // in "Sketch Rules" gesammelt — Futter fuers Design-Brain; Max/Vuven
 // bestaetigen/verwerfen per Status in Airtable.
@@ -1618,14 +1627,90 @@ async function skUnreview(req: Request) {
   return json({ ok: true });
 }
 
-// Konflikte: beide haben gevotet, aber unterschiedlich. Liefert beide Votes
-// inkl. Tags/Kommentaren zum Ausdiskutieren.
+// Offener Konflikt = App-Ergebnis "Konflikt" ODER Alt-Split von vor der App
+// (beide Ranks gesetzt, verschieden, Ergebnis leer). Bewusst OHNE View und
+// OHNE Schreiben: die Pipeline-Views bleiben, wie sie sind, und niemand
+// backfillt "App Review Ergebnis".
+const SK_STALE_DAYS = 30;
+const SK_CONFLICTS_URL = "https://scmakinas.github.io/sc-creative-reviews/artworks/#konflikte";
+
+function skOpenConflictFormula(): string {
+  const result = `{${SK.f.result}}`;
+  const vuven = `{${skVoteField("Vuven")}}`;
+  const max = `{${skVoteField("Max")}}`;
+  return `OR(${result}='Konflikt',AND(OR(${result}='',${result}=BLANK()),${vuven}!='',${max}!='',${vuven}!=${max}))`;
+}
+
+function skConflictFlags(fields: any) {
+  const result = String(fields?.[SK.f.result] ?? "").trim();
+  const vuven = String(fields?.[skVoteField("Vuven")] ?? "").trim();
+  const max = String(fields?.[skVoteField("Max")] ?? "").trim();
+  const legacy = result === "" && vuven !== "" && max !== "" && vuven !== max;
+  const raw = fields?.[SK.f.resultAt];
+  const parsed = Date.parse(String(raw ?? ""));
+  const ageDays = raw && Number.isFinite(parsed) ? (Date.now() - parsed) / 86_400_000 : null;
+  return {
+    legacy,
+    stale: ageDays !== null && ageDays > SK_STALE_DAYS,
+    ageDays,
+    resultAt: ageDays !== null ? new Date(parsed).toISOString() : null,
+  };
+}
+
+function skTally(recs: any[]) {
+  let stale = 0, legacy = 0;
+  for (const r of recs) {
+    const flags = skConflictFlags(r.fields ?? {});
+    if (flags.stale) stale++;
+    if (flags.legacy) legacy++;
+  }
+  return { open: recs.length, stale, legacy };
+}
+
+function skConflictPushMessage(stats: { open: number; stale: number; legacy: number }): string {
+  const noun = stats.open === 1 ? "Konflikt" : "Konflikte";
+  let msg = `${stats.open} ${noun} offen, ${stats.stale} älter als ${SK_STALE_DAYS} Tage`;
+  if (stats.legacy) {
+    msg += ` (${stats.legacy} Alt-Vote${stats.legacy === 1 ? "" : "s"} ohne Ergebnis)`;
+  }
+  return msg;
+}
+
+function skConflictStatFields(): string {
+  return [SK.f.autoId, SK.f.result, SK.f.resultAt, skVoteField("Vuven"), skVoteField("Max")]
+    .map((n) => `fields[]=${encodeURIComponent(n)}`).join("&");
+}
+
+async function skConflictRecords(fieldParams: string): Promise<any[]> {
+  const sks = await atAll(
+    SK.base, SK.artworks,
+    `filterByFormula=${encodeURIComponent(skOpenConflictFormula())}&${fieldParams}`,
+  );
+  // Aelteste zuerst (ohne Datum ganz oben — das sind die unsichtbaren Alt-Splits).
+  sks.sort((a, b) => {
+    const aa = skConflictFlags(a.fields ?? {}).ageDays;
+    const bb = skConflictFlags(b.fields ?? {}).ageDays;
+    if (aa === null && bb === null) return 0;
+    if (aa === null) return -1;
+    if (bb === null) return 1;
+    return bb - aa;
+  });
+  return sks;
+}
+
+async function skConflictStats() {
+  return skTally(await skConflictRecords(skConflictStatFields()));
+}
+
+// Konflikte: App-Uneinigkeit plus Alt-Splits. Liefert beide Votes inkl.
+// Tags/Kommentaren; fehlen Review-Records (typisch fuer Alt-Votes), zeigt
+// die App die Ranks aus dem Artwork selbst.
 async function skConflicts() {
-  // Ohne View: Konflikt-Artworks sind bereits beidseitig geranked und
-  // koennen aus dem Ranking-View herausgefallen sein.
-  const formula = `{${SK.f.result}}='Konflikt'`;
-  const sks = await atAll(SK.base, SK.artworks, `filterByFormula=${encodeURIComponent(formula)}&${skFieldParams()}`);
-  if (!sks.length) return json({ conflicts: [] });
+  const sks = await skConflictRecords(
+    `${skFieldParams()}&fields[]=${encodeURIComponent(SK.f.resultAt)}`,
+  );
+  const stats = skTally(sks);
+  if (!sks.length) return json({ conflicts: [], ...stats });
   const revs = await atAll(SK.base, SK.reviews);
   const byId = new Map<string, any[]>();
   for (const r of revs) {
@@ -1635,17 +1720,24 @@ async function skConflicts() {
     byId.get(sid)!.push(r);
   }
   return json({
-    conflicts: sks.map((s) => ({
-      ...skShape(s),
-      reviews: (byId.get(s.id) ?? []).map((r) => ({
-        reviewId: r.id,
-        reviewer: r.fields?.["Reviewer"] ?? "",
-        verdict: r.fields?.["Votum"] ?? "",
-        tags: r.fields?.["Feedback Tags"] ?? [],
-        comment: r.fields?.["Kommentar"] ?? "",
-        date: r.fields?.["Datum"] ?? null,
-      })),
-    })),
+    ...stats,
+    conflicts: sks.map((s) => {
+      const flags = skConflictFlags(s.fields ?? {});
+      return {
+        ...skShape(s),
+        legacy: flags.legacy,
+        stale: flags.stale,
+        resultAt: flags.resultAt,
+        reviews: (byId.get(s.id) ?? []).map((r) => ({
+          reviewId: r.id,
+          reviewer: r.fields?.["Reviewer"] ?? "",
+          verdict: r.fields?.["Votum"] ?? "",
+          tags: r.fields?.["Feedback Tags"] ?? [],
+          comment: r.fields?.["Kommentar"] ?? "",
+          date: r.fields?.["Datum"] ?? null,
+        })),
+      };
+    }),
   });
 }
 
@@ -1721,10 +1813,11 @@ async function skFailtags() {
 }
 
 // Handy-Push an die Reviewer, wenn Artworks im Ranking liegen. Bewusst NICHT
-// automatisch getriggert (kein Cron): Der Import-Prozess (Design-Engine /
-// Claude-Session) ruft POST /notify?format=artworks auf, NACHDEM neue
-// Artworks eingespielt sind. Anzahl kommt live aus der Queue; bei leerer
-// Queue wird nichts gesendet. Optionaler Body {message} ueberschreibt den Text.
+// automatisch getriggert (kein Cron auf dieser Route): Der Import-Prozess
+// (Design-Engine / Claude-Session) ruft POST /notify?format=artworks auf,
+// NACHDEM neue Artworks eingespielt sind. Anzahl kommt live aus der Queue;
+// bei leerer Queue wird nichts gesendet. Optionaler Body {message}
+// ueberschreibt den Text. Offene Konflikte laufen ueber POST /remind.
 async function skNotifyQueue(req: Request) {
   const b = await req.json().catch(() => ({}));
   const count = async (reviewer: string) =>
@@ -1745,6 +1838,38 @@ async function skNotifyQueue(req: Request) {
     topicKey: "ntfy_topic_artworks",
   });
   return json({ notified: true, queue: { Vuven: qV, Max: qM } });
+}
+
+// Konflikt-Erinnerung. Getrennt von /notify, damit der Import-Push fuer neue
+// Artworks unveraendert bleibt. Sendet nur bei offenen Konflikten > 0.
+// ?dry=1 (oder Body {dry:true}) liefert Zaehler und Text, ohne ntfy aufzurufen.
+// Der taegliche Trigger liegt in Postgres (pg_cron), nicht hier.
+async function skRemind(req: Request) {
+  const url = new URL(req.url);
+  const b = await req.json().catch(() => ({}));
+  const dry = url.searchParams.get("dry") === "1" || b?.dry === true;
+  const stats = await skConflictStats();
+  const message = String(b?.message ?? "").trim() || skConflictPushMessage(stats);
+  const payload = {
+    notified: false,
+    dry,
+    conflicts: stats.open,
+    stale: stats.stale,
+    legacy: stats.legacy,
+    message,
+    click: SK_CONFLICTS_URL,
+  };
+  if (!stats.open) {
+    return json({ ...payload, note: "Keine offenen Konflikte — kein Push." });
+  }
+  if (dry) return json({ ...payload, note: "dry=1 — kein Push." });
+  await notify(message, {
+    title: "Artwork Review · Konflikte",
+    click: SK_CONFLICTS_URL,
+    tags: ["warning", "art"],
+    topicKey: "ntfy_topic_artworks",
+  });
+  return json({ ...payload, notified: true });
 }
 
 // Programmatischer Regel-Vorschlag (z.B. aus anderen Claude-Sessions /
@@ -1792,10 +1917,10 @@ async function skProbe() {
       SK.base, SK.artworks,
       `${view ? `view=${view}&` : ""}filterByFormula=${encodeURIComponent(formula)}&fields[]=${encodeURIComponent(SK.f.autoId)}`,
     )).length;
-  const [qV, qM, conflicts] = await Promise.all([
+  const [qV, qM, conflictStats] = await Promise.all([
     count(`AND({${SK.f.image}}!='', {${skVoteField("Vuven")}}='')`, SK.view),
     count(`AND({${SK.f.image}}!='', {${skVoteField("Max")}}='')`, SK.view),
-    count(`{${SK.f.result}}='Konflikt'`),
+    skConflictStats(),
   ]);
   const revs = await atAll(SK.base, SK.reviews, "fields[]=Reviewer");
   const rules = await atAll(SK.base, SK.rules, "fields[]=Rule%20ID");
@@ -1803,7 +1928,9 @@ async function skProbe() {
     airtableOk: true,
     ms: Date.now() - t0,
     queue: { Vuven: qV, Max: qM },
-    conflicts,
+    conflicts: conflictStats.open,
+    conflictsStale: conflictStats.stale,
+    conflictsLegacy: conflictStats.legacy,
     reviews: revs.length,
     rules: rules.length,
   });
@@ -1834,6 +1961,7 @@ Deno.serve(async (req) => {
       if (route === "failtags") return await skFailtags();
       if (route === "probe") return await skProbe();
       if (route === "notify" && req.method === "POST") return await skNotifyQueue(req);
+      if (route === "remind" && req.method === "POST") return await skRemind(req);
       if (route === "addrule" && req.method === "POST") return await skAddRuleRoute(req);
       return json({ error: `Route /${route} gibt es fuer format=artworks nicht (kein Figma-Sync).` }, 400);
     }
