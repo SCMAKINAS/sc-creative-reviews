@@ -134,6 +134,11 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 (function(){
 "use strict";
 var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
+// Fester Team-Key (wie auf der Video-Seite; Jonas 30.10.): kein Key-Screen mehr.
+// Safari (ITP) und der Slack-In-App-Browser werfen localStorage weg, Max musste
+// den Key immer wieder eintippen. ?key= bzw. ein gespeicherter Key haben Vorrang
+// (Rotation moeglich); liefert der 401, faellt die App auf den festen Key zurueck.
+var DEFAULT_KEY="547895645621236548899654123654563214779896";
 var KEY=null;
 
 // Start-Tags = Select-Optionen der Tabelle "Artwork Reviews" (SCA PRODUCT-LAB).
@@ -172,8 +177,8 @@ function initKey(){
  var q=new URLSearchParams(location.search);
  if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
  else KEY=cleanKey(localStorage.getItem('scr-key'));
- if(KEY)localStorage.setItem('scr-key',KEY);
- if(!KEY){askKey();return false}
+ if(!KEY)KEY=DEFAULT_KEY;
+ try{localStorage.setItem('scr-key',KEY)}catch(x){}
  return true}
 function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
  V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
@@ -228,7 +233,8 @@ function load(){
   st.session=st.reviewer+'-artworks-'+new Date().toISOString().slice(0,16);
   card()}).catch(function(e){
   var m=String(e.message);
-  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
+  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){try{localStorage.removeItem('scr-key')}catch(x){}
+   if(KEY!==DEFAULT_KEY){KEY=DEFAULT_KEY;enter()}else{KEY=null;askKey()}}
   else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
 
 function cur(){return st.queue[st.idx]}

@@ -99,6 +99,9 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 .viewer.open{display:block}
 .viewer img{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;user-select:none;-webkit-user-drag:none;cursor:grab}
 .viewer .vclose{position:fixed;top:12px;right:12px;z-index:61;width:38px;height:38px;border-radius:999px;border:1px solid var(--line);background:#0E0E0Ed9;color:var(--bone);font-size:16px;cursor:pointer}
+.viewer .vstamp{position:fixed;top:22%;left:50%;transform:translateX(-50%) rotate(-11deg);font-family:'Oswald','Arial Narrow',sans-serif;font-size:34px;letter-spacing:.1em;padding:8px 18px;border:5px solid;border-radius:8px;opacity:0;z-index:62;pointer-events:none;white-space:nowrap}
+.viewer .vmeta{position:fixed;top:12px;left:12px;z-index:61;color:var(--bone2);font-size:9px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;padding:4px 10px;border-radius:3px;max-width:55vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.viewer .vundo{right:58px;font-size:18px}.viewer .vundo:disabled{opacity:.35;cursor:default}
 .viewer .vhint{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:61;color:var(--bone2);font-size:8.5px;font-weight:700;letter-spacing:.08em;background:#000000c4;border:1px solid #ffffff2b;padding:4px 10px;border-radius:3px;white-space:nowrap}
 @media(min-width:760px){#app{max-width:480px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -123,8 +126,11 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 
 <div class="viewer" id="viewer">
   <img id="viewerimg" alt="">
+  <div class="vstamp" id="vstamp"></div>
+  <div class="vmeta" id="vmeta"></div>
+  <button class="vclose vundo" id="viewerundo" title="Undo">&#8617;</button>
   <button class="vclose" id="viewerclose">&#10005;</button>
-  <div class="vhint">PINCH / DOPPELTIPP ZOOMEN · ZIEHEN BEWEGEN</div>
+  <div class="vhint" id="vhint">&larr; WISCHEN = REJECT · CONFIRM = WISCHEN &rarr; · PINCH / DOPPELTIPP = ZOOM</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -132,6 +138,11 @@ h4{font-family:'Oswald','Arial Narrow',sans-serif;font-size:13px;letter-spacing:
 (function(){
 "use strict";
 var API="https://ekiwwjzmiywaxvxdhzat.supabase.co/functions/v1/creative-review";
+// Fester Team-Key (wie auf der Video-Seite; Jonas 30.10.): kein Key-Screen mehr.
+// Safari (ITP) und der Slack-In-App-Browser werfen localStorage weg, Max musste
+// den Key immer wieder eintippen. ?key= bzw. ein gespeicherter Key haben Vorrang
+// (Rotation moeglich); liefert der 401, faellt die App auf den festen Key zurueck.
+var DEFAULT_KEY="547895645621236548899654123654563214779896";
 var KEY=null;
 
 // Tag-Listen abgeleitet aus Max' Original-Feedback in der Gruppen-DM
@@ -164,7 +175,7 @@ function cfg(){return FMT[st.format]||FMT.statics}
 var SERVER_TAGS={};
 var st={reviewer:localStorage.getItem('scr-reviewer')||'Max',role:'Decision',
  format:(localStorage.getItem('scr-format')in FMT)?localStorage.getItem('scr-format'):'statics',
- queue:[],idx:0,total:0,session:'',t0:0,pend:null,busy:false,hist:[]};
+ queue:[],idx:0,total:0,session:'',t0:0,pend:null,busy:false,hist:[],fs:false};
 
 var V=document.getElementById('view'),KEYS=document.getElementById('keys');
 function $(id){return document.getElementById(id)}
@@ -184,8 +195,8 @@ function initKey(){
  var q=new URLSearchParams(location.search);
  if(q.get('key')){KEY=cleanKey(q.get('key'));localStorage.setItem('scr-key',KEY)}
  else KEY=cleanKey(localStorage.getItem('scr-key'));
- if(KEY)localStorage.setItem('scr-key',KEY);
- if(!KEY){askKey();return false}
+ if(!KEY)KEY=DEFAULT_KEY;
+ try{localStorage.setItem('scr-key',KEY)}catch(x){}
  return true}
 function askKey(){bar(0,'ZUGANG','');KEYS.textContent='';
  V.innerHTML='<div class="body keyask"><h4>REVIEW-KEY</h4>'+
@@ -224,7 +235,8 @@ function load(){
   st.session=st.reviewer+'-'+st.format+'-'+new Date().toISOString().slice(0,16);
   card()}).catch(function(e){
   var m=String(e.message);
-  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){localStorage.removeItem('scr-key');KEY=null;askKey()}
+  if(m.indexOf('unauthorized')>=0||m.indexOf('invalid value')>=0){try{localStorage.removeItem('scr-key')}catch(x){}
+   if(KEY!==DEFAULT_KEY){KEY=DEFAULT_KEY;load()}else{KEY=null;askKey()}}
   else V.innerHTML='<div class="loadbox">FEHLER: '+esc(m)+'</div>'})}
 
 function cur(){return st.queue[st.idx]}
@@ -285,7 +297,11 @@ function card(){
  // Naechste zwei Karten vorladen (Thumbs) — Video ueberspringen, new Image()
  // auf eine Videodatei laedt nur unnoetig Bytes ohne Nutzen.
  [1,2].forEach(function(off){var nx=st.queue[st.idx+off];
-  if(nx&&nx.image&&nx.kind!=='video'){var p=new Image();p.src=nx.image}})}
+  if(nx&&nx.image&&nx.kind!=='video'){var p=new Image();p.src=nx.image}});
+ // Vollbild-Modus (Max' Wunsch 30.10.): wurde im Vollbild entschieden, kommt die
+ // naechste Karte direkt wieder im Vollbild — bis X / Esc. Video braucht seine
+ // Controls, da endet der Modus.
+ if(st.fs){if(isVid)closeViewer();else openViewer(a.imageFull||a.image)}}
 
 function drag(e,a){
  var sx=0,sy=0,dx=0,on=false,moved=false,pt0=0,dt=null,stp=e.querySelector('.stamp');
@@ -455,7 +471,7 @@ function undo(){
 
 // ---- Summary ----
 function summary(){
- bar(100,'FERTIG','');KEYS.textContent='';
+ closeViewer();bar(100,'FERTIG','');KEYS.textContent='';
  var n=st.hist.length,ok=st.hist.filter(function(h){return h.v==='Passt'}).length;
  var h='<div class="body"><h4>ALLES REVIEWED</h4>'+
   '<div class="hint">Keine offenen Assets für '+esc(st.reviewer)+' ('+esc(st.role)+').</div>';
@@ -471,7 +487,12 @@ function summary(){
 // ---- Tastatur ----
 document.addEventListener('keydown',function(e){
  if(!st.queue.length||V.querySelector('.sheet')||/INPUT/.test(e.target.tagName))return;
- if($('viewer').classList.contains('open')){if(e.key==='Escape')closeViewer();return}
+ if($('viewer').classList.contains('open')){
+  if(e.key==='Escape')closeViewer();
+  else if(e.key==='ArrowRight'){e.preventDefault();closeViewer(true);act('Passt')}
+  else if(e.key==='ArrowLeft'){e.preventDefault();closeViewer(true);act('Abweichung')}
+  else if(e.key==='u'||e.key==='U'){closeViewer(true);undo()}
+  return}
  if(!cur())return;
  if(e.key==='ArrowRight'){e.preventDefault();act('Passt')}
  else if(e.key==='ArrowLeft'){e.preventDefault();act('Abweichung')}
@@ -480,38 +501,63 @@ document.addEventListener('keydown',function(e){
 // ---- Vollbild-Zoom ----
 var vz={scale:1,x:0,y:0,natW:0,natH:0,min:1};
 function openViewer(src){
- var img=$('viewerimg');img.src=src;
+ var img=$('viewerimg'),a=cur();img.src=src;st.fs=true;
+ $('vmeta').textContent=a?[a.id,a.produkt,a.colorway].filter(Boolean).join(' · '):'';
+ $('viewerundo').disabled=!st.hist.length;
  $('viewer').classList.add('open');
  img.onload=function(){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()};
  if(img.complete&&img.naturalWidth){vz.natW=img.naturalWidth;vz.natH=img.naturalHeight;fitV()}}
-function closeViewer(){$('viewer').classList.remove('open')}
+// keep=true: nur ausblenden (Entscheidung/Undo aus dem Vollbild), Modus bleibt an.
+function closeViewer(keep){$('viewer').classList.remove('open');if(!keep)st.fs=false}
 function fitV(){var vw=innerWidth,vh=innerHeight;
  vz.min=Math.min(vw/vz.natW,vh/vz.natH);vz.scale=vz.min;
  vz.x=(vw-vz.natW*vz.scale)/2;vz.y=(vh-vz.natH*vz.scale)/2;applyV()}
-function applyV(){$('viewerimg').style.transform='translate('+vz.x+'px,'+vz.y+'px) scale('+vz.scale+')'}
+function zoomedV(){return vz.scale>vz.min*1.02}
+function applyV(){$('viewerimg').style.transform='translate('+vz.x+'px,'+vz.y+'px) scale('+vz.scale+')';
+ var h=zoomedV()?'ZIEHEN BEWEGEN · DOPPELTIPP = GANZES BILD':'\u2190 WISCHEN = REJECT · CONFIRM = WISCHEN \u2192 · PINCH / DOPPELTIPP = ZOOM';
+ var vh=$('vhint');if(vh.textContent!==h)vh.textContent=h}
 function clampV(){var vw=innerWidth,vh=innerHeight,w=vz.natW*vz.scale,h=vz.natH*vz.scale;
  vz.x=w<=vw?(vw-w)/2:Math.min(0,Math.max(vw-w,vz.x));
  vz.y=h<=vh?(vh-h)/2:Math.min(0,Math.max(vh-h,vz.y))}
 function zoomAt(cx,cy,f){var ns=Math.min(Math.max(vz.scale*f,vz.min),vz.min*8);
  vz.x=cx-(cx-vz.x)*(ns/vz.scale);vz.y=cy-(cy-vz.y)*(ns/vz.scale);vz.scale=ns;clampV();applyV()}
-$('viewerclose').onclick=closeViewer;
+$('viewerclose').onclick=function(){closeViewer()};
+$('viewerundo').onclick=function(){if(!st.hist.length)return;closeViewer(true);undo()};
 (function(){
- var v=$('viewer'),pts=new Map(),ld=0,lt=0,drg=false,lx=0,ly=0;
+ var v=$('viewer'),img=$('viewerimg'),stp=$('vstamp'),pts=new Map(),ld=0,lt=0,drg=false,lx=0,ly=0;
+ // Swipe im Vollbild: solange nicht reingezoomt ist, wischt eine horizontale
+ // Ein-Finger-Bewegung wie auf der Karte (rechts=Confirm, links=Reject).
+ var sx0=0,sy0=0,sw=0,swOn=false;
+ function swipeReset(anim){swOn=false;sw=0;stp.style.opacity=0;
+  if(anim){img.style.transition='transform .2s';setTimeout(function(){img.style.transition=''},220)}applyV()}
  v.addEventListener('pointerdown',function(e){
-  if(e.target.id==='viewerclose')return;
+  if(e.target.closest('button'))return;
   v.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pts.size===1){drg=true;lx=e.clientX;ly=e.clientY;
+  if(pts.size===1){drg=true;lx=e.clientX;ly=e.clientY;sx0=e.clientX;sy0=e.clientY;sw=0;swOn=false;
    var now=Date.now();
-   if(now-lt<280){if(vz.scale>vz.min*1.05)fitV();else zoomAt(e.clientX,e.clientY,3);lt=0}else lt=now}
-  else if(pts.size===2){var a=Array.from(pts.values());ld=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
+   if(now-lt<280){if(zoomedV())fitV();else zoomAt(e.clientX,e.clientY,3);lt=0}else lt=now}
+  else if(pts.size===2){if(swOn)swipeReset(false);var a=Array.from(pts.values());ld=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}});
  v.addEventListener('pointermove',function(e){
   if(!pts.has(e.pointerId))return;
   pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(pts.size===2){var a=Array.from(pts.values());
    var d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),cx=(a[0].x+a[1].x)/2,cy=(a[0].y+a[1].y)/2;
    if(ld>0)zoomAt(cx,cy,d/ld);ld=d}
-  else if(drg&&pts.size===1){vz.x+=e.clientX-lx;vz.y+=e.clientY-ly;lx=e.clientX;ly=e.clientY;clampV();applyV()}});
- function up(e){pts.delete(e.pointerId);if(pts.size<2)ld=0;if(!pts.size)drg=false}
+  else if(drg&&pts.size===1){
+   if(!zoomedV()&&cur()){
+    var dx=e.clientX-sx0,dy=e.clientY-sy0;
+    if(!swOn&&Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy))swOn=true;
+    if(swOn){sw=dx;img.style.transform='translate('+(vz.x+dx)+'px,'+vz.y+'px) scale('+vz.scale+')';
+     var sv=dx>45?'Passt':dx<-45?'Abweichung':null;
+     if(sv){stp.textContent=ST[sv][0];stp.style.color=ST[sv][1];stp.style.borderColor=ST[sv][1];
+      stp.style.opacity=Math.min(1,(Math.abs(dx)-45)/55)}else stp.style.opacity=0}
+    return}
+   vz.x+=e.clientX-lx;vz.y+=e.clientY-ly;lx=e.clientX;ly=e.clientY;clampV();applyV()}});
+ function up(e){pts.delete(e.pointerId);if(pts.size<2)ld=0;
+  if(!pts.size){drg=false;
+   if(swOn){var d=sw,sv=d>90?'Passt':d<-90?'Abweichung':null;
+    if(sv&&cur()&&!V.querySelector('.sheet')){lt=0;swipeReset(false);closeViewer(true);act(sv)}
+    else swipeReset(true)}}}
  v.addEventListener('pointerup',up);v.addEventListener('pointercancel',up);
  v.addEventListener('wheel',function(e){e.preventDefault();zoomAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15)},{passive:false});
 })();
